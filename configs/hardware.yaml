@@ -1,0 +1,15 @@
+capture:
+  device_index: 1
+  backend: dshow
+  width: 1920
+  height: 1080
+  fps: 60.0
+  latency_frames: 6
+
+controller:
+  udp_ip: 192.168.1.196
+  udp_port: 5005
+  response_port: 5006
+  response_mode: 0
+
+active_season: s14

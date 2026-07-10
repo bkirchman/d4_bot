@@ -53,4 +53,3 @@ OUTPUT CONVENTIONS for every task:
 - After implementing, run the tests or verification script named in the task
   and report the actual output.
 - Flag every assumption you made explicitly at the end.
-```
