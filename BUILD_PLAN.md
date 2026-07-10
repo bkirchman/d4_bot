@@ -15,7 +15,7 @@
 
 ## Phase 0 — Repo Setup and Framework Wiring
 
-**Prerequisites:** none. **Sessions:** 1. **Validated against bot_framework commit:** ________
+**Prerequisites:** none. **Sessions:** 1. **Validated against bot_framework commit:** 5f00fcc
 
 **Features:** FG-4, F-CFG-1 (file + loader/validator), repo scaffolding, Copilot standing instructions.
 
