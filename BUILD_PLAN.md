@@ -15,7 +15,7 @@
 
 ## Phase 0 — Repo Setup and Framework Wiring
 
-**Prerequisites:** none. **Sessions:** 1. **Validated against bot_framework commit:** 5f00fcc
+**Prerequisites:** none. **Sessions:** 1. **Validated against bot_framework commit:** ________
 
 **Features:** FG-4, F-CFG-1 (file + loader/validator), repo scaffolding, Copilot standing instructions.
 
@@ -48,7 +48,7 @@ Capture + UDP are already proven on this rig via diablo_bot, so this phase is wi
 **Files to create:**
 - `bot_framework/framework/contrib/recording/__init__.py` + FrameRecorder module (FG-3)
 - `d4_bot/configs/rois.yaml` — initial `minimap` and `nav_arrow_window` entries (placed/adjusted live with F-DIAG-1)
-- `d4_bot/configs/buttons.yaml` — the seven nav-milestone commands (F-CFG-3), built with `protocol.md` pasted alongside
+- `d4_bot/configs/buttons.yaml` — the two nav-milestone command atoms, `press_a` and `press_b`, per F-CFG-3's grow-on-demand policy (no full controller map); built with `protocol.md` pasted alongside
 - `d4_bot/src/d4_bot/commands.py` — `build_command_registry` (F-CTL-1)
 - `d4_bot/scripts/diag_roi_viewer.py` (F-DIAG-1)
 - `d4_bot/scripts/diag_udp_echo.py` (F-DIAG-3)
@@ -58,7 +58,7 @@ Capture + UDP are already proven on this rig via diablo_bot, so this phase is wi
 **Acceptance — `verify_phase_1.py` [live]:**
 - Startup banner prints resolution 1920×1080, fps 60, `latency_frames=6` **read from the capture object**.
 - Geometry assertion trips correctly when configured resolution is falsified.
-- `diag_udp_echo.py` for each of the seven commands → operator confirms the correct visible in-game act (y/n each). Two-packet payloads = automatic FAIL (the script inspects the payload form).
+- `diag_udp_echo.py` for every command in buttons.yaml (two at this phase) → operator confirms the correct visible in-game act (y/n each). Two-packet payloads = automatic FAIL (the script inspects the payload form).
 - `diag_roi_viewer.py` shows `minimap` snug around the minimap and `nav_arrow_window` covering the guide-render area (y/n).
 - 30-second recorded walk (`FrameRecorder` behind a flag) sustains ≥45 loop FPS and the output directory replays via `ReplayCapture` without error.
 - **Deliverable dataset:** `frames/walk_stand_01/` — ~60 s containing: walking, standing still, walking with a marker pinned (nav guide visible), and standing in front of a wall while pushing into it.

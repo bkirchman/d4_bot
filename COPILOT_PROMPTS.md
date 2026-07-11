@@ -115,7 +115,10 @@ the only authority for packet field names.
 <PASTE protocol.md COMMAND SECTIONS HERE>
 
 Guardrails for this phase:
-- buttons.yaml: exactly the seven commands named in F-CFG-3. Button indices
+- buttons.yaml: exactly two entries — press_a (button_1_duration) and
+  press_b (button_2_duration), per F-CFG-3's grow-on-demand policy. Do NOT
+  pre-populate a full controller map; additional commands are added in later
+  phases when a consumer needs them. Button indices
   live here and nowhere else (button_0=X, button_1=A, button_2=B, button_3=Y;
   hat_y positive = up). Every command is single-packet duration form.
 - build_command_registry: no index literals in the function body, no press/
