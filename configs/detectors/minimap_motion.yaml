@@ -1,0 +1,5 @@
+type: roi_motion
+roi: minimap
+diff_threshold: 1
+changed_fraction: 0.015
+hysteresis_ticks: 6

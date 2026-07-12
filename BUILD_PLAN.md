@@ -67,7 +67,7 @@ Capture + UDP are already proven on this rig via diablo_bot, so this phase is wi
 
 ## Phase 2 — Visual Detection Foundation
 
-**Prerequisites:** Phase 1 (needs the recorded dataset and live tuning). **Sessions:** 2. **Validated against bot_framework commit:** ________
+**Prerequisites:** Phase 1 (needs the recorded dataset and live tuning). **Sessions:** 2. **Validated against bot_framework commit:** c66dce2
 
 **Features:** FG-1, FG-2, F-DET-2, F-CFG-4, F-DET-1, F-DIAG-2, F-DIAG-4, F-CFG-5 (season folder skeleton).
 
