@@ -94,7 +94,7 @@ Capture + UDP are already proven on this rig via diablo_bot, so this phase is wi
 
 ## Phase 3 — Game State Model
 
-**Prerequisites:** Phase 2. **Sessions:** 1. **Validated against bot_framework commit:** ________
+**Prerequisites:** Phase 2. **Sessions:** 1. **Validated against bot_framework commit:** 1b1aed0
 
 **Features:** F-GS-1, F-GS-2, F-GS-3.
 
