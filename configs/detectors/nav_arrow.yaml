@@ -1,6 +1,6 @@
 type: yolo
 weights: models/nav_arrow/best.pt
 classes: models/nav_arrow/classes.yaml
-confidence_threshold: 0.60
+confidence_threshold: 0.50
 cadence: 2
 device: cuda
