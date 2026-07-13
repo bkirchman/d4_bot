@@ -1,0 +1,11 @@
+﻿navigation:
+  steering_command: move_nav_burst
+  stick_magnitude: 64
+  search_grace_ticks: 24
+  arrival_confirm_ticks: 12
+  recent_movement_window_ticks: 30
+  history_capacity: 512
+  target_class_name: Navigation
+  record_output_dir: frames/nav_run
+  record_every_n: 1
+  record_jpeg_quality: 90

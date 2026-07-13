@@ -340,6 +340,22 @@ Format: dated ADR-style entries, one paragraph each, appended chronologically. N
 
 **ADR-013 (2026-07-07) — Seasonal churn is a designed-for workflow, not an emergency.** Season folders under `configs/seasons/sNN/` hold fresh icon captures and an overrides.yaml that takes precedence over base configs. `capture_icons.py` plus a detector verification script make the ~12-week refresh a documented, repeatable procedure with a recurring Copilot prompt.
 
+### ADR-<NNN> — FrameProcessor.process takes a services bundle, not a raw FrameHistory
+
+**Date:** <YYYY-MM-DD>
+**Status:** Accepted (retroactive; framework already ships this signature).
+
+**Context.** FEATURE_SPECS §0 documented `FrameProcessor.process(frame, history)` — a two-arg call where the second argument was the FrameHistory ring buffer. The framework has since evolved: processors need more than history to do their job (command-registry access, capture metadata such as latency_frames and fps, and future collaborators we don't want to thread through constructors one at a time). The live signature in `bot_framework/framework/interfaces.py` is `process(frame, services)` where `services` is a bundle object. This drift was discovered while launching Phase 4a and is the second spec-drift incident on a core interface (see QUESTIONS.md).
+
+**Decision.** The framework signature is authoritative: `process(frame: StampedFrame, services: ProcessorServices) -> Action | None`. `services` is the sole channel for per-tick collaborators the framework hands a processor. Processors never reach around it to grab hardware, config, or singleton state.
+
+**Consequences.**
+- FEATURE_SPECS §0 corrected same session; F-NAV-1 spec surface updated to match.
+- All future processors (Phase 5+ combat, the halo_bot migration in HALO_MIGRATION.md) target this signature. Halo migration notes updated to reflect that gen3's threaded pipeline collapses into a synchronous `process(frame, services)` call, with FrameHistory reached *through* services rather than passed directly.
+- Adding a new collaborator to `services` is a framework change and gets its own ADR — we do not silently grow the bundle.
+- Copilot phase prompts from B-4b forward include the standing guardrail: *"Read framework/interfaces.py for the ProcessorServices field list before writing code; do not rely on FEATURE_SPECS for this signature."*
+
+**Alternatives considered.** Keep `(frame, history)` and inject other collaborators via processor constructors — rejected because it turns every framework capability addition into a signature change in every consumer. Pass a dict rather than a dataclass — rejected because it defeats type-checking and hides the contract.
 ---
 
 *End of ARCHITECTURE.md. Next document: FEATURE_SPECS.md.*

@@ -7,3 +7,8 @@ press_b:
   type: button_duration
   index: 2
   duration_ms: 80
+steer:
+  type: move_duration
+  move_x: 0
+  move_y: -100
+  duration_ms: 400
