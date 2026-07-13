@@ -99,7 +99,7 @@ def _check_latency_discipline(config_dir: Path, record_dir: Path) -> None:
 def _load_steering_actions(actions_path: Path) -> list[RecordedAction]:
     steering_actions: list[RecordedAction] = []
 
-    for line_no, line in enumerate(actions_path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_no, line in enumerate(actions_path.read_text(encoding="utf-8-sig").splitlines(), start=1):
         if not line.strip():
             continue
 
