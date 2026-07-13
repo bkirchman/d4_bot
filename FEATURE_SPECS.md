@@ -14,7 +14,7 @@ All `d4_bot` code imports from exactly this surface. Anything else is a violatio
 
 | Import | Provides |
 |---|---|
-| `from framework.interfaces import CaptureSource, OutputDevice, FrameProcessor, StampedFrame, Action` | Core ABCs and data types. `StampedFrame(frame_id: int, timestamp: float, frame: np.ndarray, metadata: dict)`. `Action(frame_id: int, timestamp: float, payload: Any)`. |
+| `from framework.interfaces import CaptureSource, OutputDevice, FrameProcessor, StampedFrame, Action` | Core ABCs and data types. `StampedFrame(frame_id: int, timestamp: float, frame: np.ndarray, metadata: dict)`. `Action(frame_id: int, timestamp: float, payload: Any)`. `FrameProcessor.process(frame: StampedFrame, services: ProcessorServices) -> Action | None` — `services` bundles the per-tick collaborators the processor needs (frame history, <fill from framework/interfaces.py: e.g. command registry access, capture metadata, whatever else the dataclass carries>). Read the dataclass in framework/interfaces.py for the exact field list; that source is the spec of record for this signature. |
 | `from framework.loop import BotLoop` | `BotLoop(capture, output, processor, history)`; methods `start()`, `step()`, `stop()`. Synchronous: capture → record → process → execute → re-record. |
 | `from framework.temporal import FrameHistory, TemporalAligner` | `FrameHistory(capacity: int)`; rolling `(StampedFrame, Action | None)` pairs, queryable by `frame_id` and timestamp. |
 | `from framework.contrib.hardware import AVerMediaCapture, UDPXboxOutput, ReplayCapture` | Capture sources and controller output. `AVerMediaCapture(device_index, width, height, fps, latency_frames, backend)`. `UDPXboxOutput(udp_ip, udp_port, response_port, response_mode, debug_mode)`. |
@@ -26,6 +26,7 @@ All `d4_bot` code imports from exactly this surface. Anything else is a violatio
 | `from framework.contrib.config import load_layered_config` | **New — FG-4.** |
 
 ---
+**Signature history:** `process(frame, history)` → `process(frame, services)` per ADR-<NNN>. Any older doc reference to a `history` parameter is stale and must be corrected in place when found.
 
 ## 1. Framework Gaps (build these in `bot_framework` first)
 
@@ -240,7 +241,14 @@ Schemas are specified as key tables. All files are YAML. All keys snake_case. Th
 - **Layer:** d4_bot.
 - **Origin:** Redesigned from game_bot's NavigationManager (threaded → synchronous; minimap planning → arrow steering).
 - **Consumes:** `FrameProcessor` ABC; `GameStateUpdater`; `StateDiff`; command registry payloads; `FrameHistory`; `capture.latency_frames` (injected at construction — the processor never sees a literal).
-- **Surface (spec):** `NavigationProcessor(updater, state_differ, commands, latency_frames: int, config: dict)` implementing `process(frame: StampedFrame, history: FrameHistory) -> Action | None`.
+- **Runtime config (`configs/navigation.yaml`, layered per season via load_layered_config):**
+  - `burst_duration_ms: int` — length of each steering move_duration burst (F-CTL-2).
+  - `search_grace_ticks: int` — SEARCHING hold before terminal `guide_lost`.
+  - `arrival_confirm_ticks: int` — sustained `nav_guide_lost` ticks required for ARRIVED (start at 2 × latency_frames).
+  - `nav_arrow_min_confidence: float` — floor applied on top of the detector's own threshold; defense against the known nav_arrow false-positive shelf (QUESTIONS.md, pending retrain). Detections below the floor are treated as absent for steering purposes.
+  - `<any additional keys you actually injected — list them all; the spec is the schema>`
+  No literal for any of these anywhere in Python.
+- **Surface (spec):** `NavigationProcessor(updater, state_differ, commands, latency_frames: int, config: dict)` implementing `process(frame: StampedFrame, services: ProcessorServices) -> Action | None`. FrameHistory is reached via `services`, not passed directly (ADR-<NNN>).
 - **State machine (explicit, an enum):**
   - `STEERING` — nav arrows fresh → compute steering vector → emit movement burst → enter pre-effect window.
   - `PRE_EFFECT` — for `latency_frames + burst_duration_ticks` after any emitted action: no verdicts (no stuck, no arrival, no correction against the just-issued command). Detectors keep updating state. (§4.3 of ARCHITECTURE — this processor implements the latency-gate discipline manually.)

@@ -189,32 +189,55 @@ frames/walk_stand_01/ per BUILD_PLAN.md. Run both and show output.
 ### B-4a — Phase 4a: Steering walk
 
 ```
-Task: Execute Phase 4a of BUILD_PLAN.md. Read BUILD_PLAN.md "Phase 4a" and
-FEATURE_SPECS.md sections F-NAV-1, F-NAV-2, F-CTL-2, F-FLOW-1 in full before
-writing anything. This is the highest-risk phase in the project; follow the
-spec literally.
+Task: Execute Phase 4a of BUILD_PLAN.md. Read BUILD_PLAN.md "Phase 4a"
+and FEATURE_SPECS.md sections F-NAV-1, F-NAV-2, F-CTL-2, F-FLOW-1 in
+full before writing anything. This is the highest-risk phase in the
+project; follow the spec literally.
 
 Guardrails for this phase:
+
 - NavigationProcessor implements ONLY the states STEERING, PRE_EFFECT,
   SEARCHING, ARRIVED. Do not implement STUCK_RECOVERY, StuckMonitor, or
   RecoveryLadder — they are Phase 4b. Leave a clearly marked seam.
+
 - latency_frames is injected at construction from the capture object in
   run_nav.py. No literal anywhere. The PRE_EFFECT window is latency_frames
   plus the emitted command's duration converted to ticks, computed via
   FrameHistory frame_id arithmetic — no wall-clock sleeps, no time.sleep,
   no timers.
+
 - Movement is short bursts (duration from config, not a literal) via
-  move_duration payloads from the command registry. Each burst's direction is
-  recomputed from detections whose origin frame_id postdates the previous
-  burst's real-world completion (F-NAV-2).
-- The processor reads GameState only — it never calls detectors directly and
-  never touches UDP.
+  move_duration payloads from the command registry. Each burst's direction
+  is recomputed from detections whose origin frame_id postdates the
+  previous burst's real-world completion (F-NAV-2).
+
+- The processor reads GameState only — it never calls detectors directly
+  and never touches UDP.
+
 - ARRIVED per the F-NAV-1 arrival condition: nav_guide_lost sustained
-  arrival_confirm_ticks with recent movement context. SEARCHING handles the
-  no-recent-movement lost-guide case.
-- run_nav.py mirrors the run_farm_v1.py pattern: build everything, print the
-  latency_frames banner, step until the processor reports terminal status,
-  clean stop. Flags: --record, --season, --config-dir.
+  arrival_confirm_ticks with recent movement context. SEARCHING handles
+  the no-recent-movement lost-guide case.
+
+- run_nav.py mirrors the run_farm_v1.py pattern: build everything, print
+  the latency_frames banner, step until the processor reports terminal
+  status, clean stop. Flags: --record, --season, --config-dir.
+
+- STEERING state consumes state.nav_arrows (list of Detection objects
+  with class_name and bbox). SEARCHING triggers when nav_arrows is
+  empty AND nav_arrows_frame_id staleness exceeds search_grace_ticks.
+  Do not consume detectors directly - GameState only.
+
+- The FrameProcessor.process signature described in FEATURE_SPECS §0
+  is out of date. Read framework/interfaces.py directly for the
+  current signature - it is process(frame, services) where services
+  is a dict containing capture, output, history, loop, plus custom
+  keys. Use the real signature. Flag this in your assumptions list
+  so I can correct the docs after.
+
+Commit gates: after creating each file, immediately git add and git
+commit that file alone with a descriptive message before moving to the
+next. Do not batch commits. This protects against session-level reverts
+losing work (learned the hard way in Phase 3).
 
 Acceptance: scripts/verify_phase_4a.py per BUILD_PLAN.md, including the
 replay-checkable latency-discipline audit of a recorded run's action log.
@@ -242,6 +265,7 @@ Guardrails for this phase:
 - navigation.py changes are ADDITIVE: wire the STUCK_RECOVERY state in;
   do not rework steering, PRE_EFFECT, or arrival logic. If you believe
   steering must change to accommodate recovery, stop and say so.
+  
 
 Acceptance: scripts/verify_phase_4b.py per BUILD_PLAN.md (live, operator
 y/n). This phase's acceptance is the project milestone gate.

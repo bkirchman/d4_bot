@@ -25,11 +25,7 @@
    Applies to Halo H0 too — gen3's models are v5-era.
 
 ## Doc updates pending
-8. FEATURE_SPECS §0 documents FrameProcessor.process(frame, history) —
-   the real signature is process(frame, services) where services is a
-   dict containing capture, output, history, loop, plus custom keys.
-   Discovered via test_loop.py services-injection commit. Update
-   FEATURE_SPECS §0 and F-NAV-1 before or during Phase 4a doc pass.
+8. - **Core-interface drift is a recurring failure mode.** Two incidents now (this one; the earlier `process` argument name churn). Before any phase whose prompt cites a framework class signature, the standing rule is: have Copilot quote the actual source file back before writing code. Consider adding a lightweight signature-check script that greps FEATURE_SPECS §0 signatures against framework source and fails on mismatch — deferred, but worth a session when it bites a third time.
 9. TROUBLESHOOTING.md should absorb tonight's runtime bugs:
    - RB-8: capture running at half FPS due to another consumer holding
      the DirectShow device open (fixed by killing the other consumer).
