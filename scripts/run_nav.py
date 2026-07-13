@@ -37,6 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--record", action="store_true", help="Record frames/actions to disk via FrameRecorder")
     parser.add_argument("--season", default=None, help="Season override folder name (defaults to hardware.yaml active_season)")
     parser.add_argument("--config-dir", default=str(REPO_ROOT / "configs"), help="Path to config directory")
+    parser.add_argument("--verbose", action="store_true", help="Print throttled per-tick navigation diagnostics")
     return parser.parse_args()
 
 
@@ -57,6 +58,7 @@ def main() -> int:
     season_overrides = load_season_overrides(config_dir, season)
     detectors = build_detectors(config_dir / "detectors", rois, season_overrides)
     updater = GameStateUpdater(detectors)
+    nav_arrow_detector = detectors.get("nav_arrow")
 
     capture, first_frame = build_capture(config_dir)
     output = build_output(config_dir)
@@ -76,10 +78,35 @@ def main() -> int:
     print(f"run_nav: latency_frames={capture.latency_frames} season={season} record={bool(recorder)}")
     _ = first_frame
 
+    runtime_ticks = 0
+    bursts_emitted = 0
+    prev_nav_state = processor.nav_state
+    last_frame_id = -1
+
     try:
         loop.start()
         while True:
             frame, action = loop.step()
+            runtime_ticks += 1
+            last_frame_id = frame.frame_id
+
+            if action is not None and isinstance(action.payload, dict) and "move_duration" in action.payload:
+                bursts_emitted += 1
+
+            if args.verbose and processor.nav_state != prev_nav_state:
+                print(f"[f={frame.frame_id}] transition: {prev_nav_state.name} -> {processor.nav_state.name}")
+                prev_nav_state = processor.nav_state
+
+            if args.verbose and (runtime_ticks % 30 == 0):
+                nav_arrows_count = len(getattr(nav_arrow_detector, "last_result", []))
+                print(
+                    f"[f={frame.frame_id}] "
+                    f"state={processor.nav_state.name} "
+                    f"nav_arrows={nav_arrows_count} "
+                    f"bursts={bursts_emitted} "
+                    f"terminal={processor.terminal_status}"
+                )
+
             if recorder is not None:
                 recorder.record(frame, action)
             if processor.is_terminal:
@@ -91,7 +118,13 @@ def main() -> int:
         output.close()
         capture.close()
 
-    print(f"run_nav terminal_status={processor.terminal_status} nav_state={processor.nav_state.value}")
+    terminal_frame_id = last_frame_id if last_frame_id >= 0 else runtime_ticks
+    print(
+        f"[f={terminal_frame_id}] TERMINAL "
+        f"status={processor.terminal_status} "
+        f"bursts_emitted={bursts_emitted} "
+        f"runtime_ticks={runtime_ticks}"
+    )
     return 0
 
 
