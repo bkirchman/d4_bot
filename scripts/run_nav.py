@@ -91,7 +91,15 @@ def main() -> int:
             last_frame_id = frame.frame_id
 
             if action is not None and isinstance(action.payload, dict) and "move_duration" in action.payload:
+                burst_payload = action.payload
                 bursts_emitted += 1
+                if args.verbose:
+                    print(
+                        f"[f={frame.frame_id}] BURST "
+                        f"move_x={burst_payload['move_x']} "
+                        f"move_y={burst_payload['move_y']} "
+                        f"duration_ms={burst_payload['move_duration']}"
+                    )
 
             if args.verbose and processor.nav_state != prev_nav_state:
                 print(f"[f={frame.frame_id}] transition: {prev_nav_state.name} -> {processor.nav_state.name}")
