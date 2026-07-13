@@ -121,7 +121,7 @@ Capture + UDP are already proven on this rig via diablo_bot, so this phase is wi
 **Files to create:**
 - `d4_bot/src/d4_bot/processors/navigation.py` — NavigationProcessor + steering emission helper
 - `d4_bot/scripts/run_nav.py` (with `--record`, `--season`, `--config-dir`)
-- `d4_bot/configs/navigation.yaml` — runtime config for NavigationProcessor per F-NAV-1's runtime-config bullet. Season overrides via `configs/seasons/sNN/overrides.yaml` (F-CFG-5), no Python literals.
+- `d4_bot/configs/navigation.yaml` — runtime config for NavigationProcessor per F-NAV-1's runtime-config bullet. Includes overlapping-burst emission keys per ADR-014 (`emission_interval_ms`, `burst_duration_ms`, `significant_direction_change_degrees`). Season overrides via `configs/seasons/sNN/overrides.yaml` (F-CFG-5), no Python literals.
 - `d4_bot/configs/buttons.yaml` — **modified**: add `move_duration` command atom per F-CFG-3 grow-on-demand policy. Validate via F-DIAG-3 (`diag_udp_echo.py --command move_duration`) before the first live run.
 
 **Acceptance — `verify_phase_4a.py` [live]:**

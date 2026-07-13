@@ -52,3 +52,5 @@
     ranges saved beside the frames, OR a labels.jsonl written by the
     recorder when the operator tags segments with a keypress. Not a
     today problem; a "before we care about regressions" problem.
+
+- **Overlapping-burst emission (ADR-014) has downstream implications for Phase 4b stuck detection.** F-NAV-3's stuck definition currently keys on "movement burst active or just completed" — an anchor that doesn't exist under continuous emission. Proposed replacement anchor is banked in F-NAV-3's impact bullet. Confirm the replacement wording and add unit tests during Phase 4b implementation session, not before.

@@ -340,6 +340,7 @@ Format: dated ADR-style entries, one paragraph each, appended chronologically. N
 
 **ADR-013 (2026-07-07) — Seasonal churn is a designed-for workflow, not an emergency.** Season folders under `configs/seasons/sNN/` hold fresh icon captures and an overrides.yaml that takes precedence over base configs. `capture_icons.py` plus a detector verification script make the ~12-week refresh a documented, repeatable procedure with a recurring Copilot prompt.
 
+
 ### ADR-<NNN> — FrameProcessor.process takes a services bundle, not a raw FrameHistory
 
 **Date:** <YYYY-MM-DD>
@@ -356,6 +357,40 @@ Format: dated ADR-style entries, one paragraph each, appended chronologically. N
 - Copilot phase prompts from B-4b forward include the standing guardrail: *"Read framework/interfaces.py for the ProcessorServices field list before writing code; do not rely on FEATURE_SPECS for this signature."*
 
 **Alternatives considered.** Keep `(frame, history)` and inject other collaborators via processor constructors — rejected because it turns every framework capability addition into a signature change in every consumer. Pass a dict rather than a dataclass — rejected because it defeats type-checking and hides the contract.
+
+### ADR-014 — Steering emission overlaps bursts; PRE_EFFECT gates verdicts, not emissions
+
+**Date:** 2026-07-13
+**Status:** Accepted. Amends ADR-006 (navigation-as-processor) and F-CTL-2 / F-NAV-1 in FEATURE_SPECS.md.
+
+**Context.** Phase 4a live acceptance revealed that non-overlapping fixed-duration bursts produce unshippable visible movement quality. Firmware v2.1 `move_duration` commands are self-releasing (protocol.md §3.2): when duration expires, the left stick returns to neutral. In D4, stick-to-neutral triggers an in-game stop animation, and stick-from-neutral triggers a start animation. Both animations are non-zero cost. At the Phase 4a starting config (400 ms burst, 100 ms latency gate ≈ 100 ms pause per boundary), the character was visibly walking roughly 50% of the time — every burst boundary incurred a full stop-then-start animation cycle, and those animations were expensive enough to dominate visible motion.
+
+The original F-CTL-2 design ("emit as short bursts, each burst boundary a decision point") conflated two responsibilities: (a) when the processor emits a movement command, and (b) when the processor is allowed to evaluate whether the previous command's effect landed. It treated these as the same moment. In practice they are not the same requirement — emission wants to be frequent to keep motion continuous; verdicts want to be conservative to respect capture latency.
+
+**Decision.** Bursts overlap. Emission cadence is a new config value (`emission_interval_ms`) decoupled from burst duration (`burst_duration_ms`). Burst duration now functions as a dead-man's-switch safety timer — if the bot dies or hangs, the firmware self-releases within `burst_duration_ms` and the character stops. Emission cadence is set shorter than burst duration so a new `move_duration` packet always arrives before the previous burst's timer expires, superseding it per protocol.md §3.2 special behavior. The character never sees a neutral stick during normal operation; no stop/start animation cycles are triggered.
+
+The PRE_EFFECT concept is retained but its semantics change: it gates **verdicts** (arrival, stuck, correction-against-just-issued-command), not emissions. The processor continues emitting bursts on the emission cadence throughout the PRE_EFFECT window, updating direction based on the freshest available detection. It withholds verdicts until the pre-effect window elapses relative to the most recent *significant direction change*, not relative to the most recent emission (since emissions are now continuous).
+
+**Starting values (Phase 4a config):**
+- `emission_interval_ms: 200` — a new burst is emitted every 200 ms.
+- `burst_duration_ms: 400` — safety timer; character walks no more than 400 ms after last packet if the bot crashes.
+- Pre-effect window (verdicts only): `latency_frames + <significant direction change threshold ticks>`.
+
+**"Significant direction change" definition:** the anchor for verdict gating shifts from "last emission" to "last emission whose steering direction differed from the previous emission by more than N degrees" (config: `significant_direction_change_degrees`, starting value ~15°). Rationale: if two successive bursts point almost the same direction, no meaningful new command was issued, and verdicts don't need to re-gate. Small-angle corrections during continuous motion should not perpetually reset the verdict window.
+
+**Consequences.**
+- F-CTL-2 and F-NAV-1 amended same session; new config keys documented in F-NAV-1's runtime config bullet.
+- F-NAV-2's rule ("each new burst's direction is computed from detections whose origin frame_id postdates the previous burst's real-world completion") is amended: direction is computed from the freshest detection whose origin frame_id postdates the most recent *significant direction change*, plus latency_frames. Detections older than that are treated as stale for direction purposes.
+- Phase 4b stuck detection design impact: F-NAV-3 currently keys stuck evaluation on "movement burst active or just completed" (FEATURE_SPECS.md §7). Under continuous emission, "just completed" is not a meaningful anchor. Phase 4b's spec must define a different anchor — proposed: "movement burst emitted within the last N ticks with non-zero intended magnitude," which is the honest reading of "the bot is trying to move." F-NAV-3 to be updated when Phase 4b lands.
+- Copilot phase prompts from B-4b forward include the standing guardrail: *"Bursts overlap. Do not treat burst completion as a state transition or verdict anchor."*
+- The stop/start animation cost this ADR addresses is D4-specific in its magnitude, but the general principle (self-releasing bursts trigger game-side start/stop transitions) will apply to Halo migration and any future game.
+
+**Alternatives considered.**
+- **Per-frame emission.** Rejected: emitting every tick means every steering decision is made on frames that reflect a command already superseded twice, and the F-NAV-2 latency discipline becomes impossible to honor. The overlap model preserves latency discipline by keeping emission cadence longer than latency_frames.
+- **Shorter non-overlapping bursts.** Rejected: the stop/start animation cost is a per-emission fixed cost, not a per-millisecond cost. Halving the burst duration doubles the number of animation cycles and makes the problem worse, not better.
+- **Keep the current non-overlapping design and accept 50% visible duty cycle.** Rejected: Phase 4a's acceptance criteria include reaching a marker pinned 20–30 seconds away in real playtime. At effective half-speed, that's a 40–60 second walk with visible stop/start jitter throughout — not shippable as a milestone regardless of whether it terminates in ARRIVED.
+
+**Correctness argument (why this preserves latency discipline).** The F-NAV-2 concern was: a burst emitted while the previous burst's effect wasn't yet visible would be steering on stale data. Under overlap, this is preserved by keying direction freshness to the last *significant direction change*, not the last emission. Small continuous corrections during steady walking are cheap and correct — the direction is stable, all detections are equally fresh relative to intent. Only when direction meaningfully changes (obstacle, guide reroute) do we reset the freshness clock, and at that point the pre-effect window kicks in and prevents further significant changes until the last one's effect is visible. Verdicts (arrival, stuck) always gate on the pre-effect window relative to the last significant direction change.
 ---
 
 *End of ARCHITECTURE.md. Next document: FEATURE_SPECS.md.*
