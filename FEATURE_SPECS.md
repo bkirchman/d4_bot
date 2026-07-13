@@ -243,6 +243,8 @@ Schemas are specified as key tables. All files are YAML. All keys snake_case. Th
 - **Consumes:** `FrameProcessor` ABC; `GameStateUpdater`; `StateDiff`; command registry payloads; `FrameHistory`; `capture.latency_frames` (injected at construction — the processor never sees a literal).
 - **Runtime config (`configs/navigation.yaml`, layered per season via load_layered_config):**
   - `burst_duration_ms: int` — length of each steering move_duration burst (F-CTL-2).
+  - `character_anchor_x: int` — pixel column of the character's on-screen render position at the configured capture resolution.
+  - `character_anchor_y: int` — pixel row of the character's on-screen render position at the configured capture resolution.
   - `search_grace_ticks: int` — SEARCHING hold before terminal `guide_lost`.
   - `arrival_confirm_ticks: int` — sustained `nav_guide_lost` ticks required for ARRIVED (start at 2 × latency_frames).
   - `nav_arrow_min_confidence: float` — floor applied on top of the detector's own threshold; defense against the known nav_arrow false-positive shelf (QUESTIONS.md, pending retrain). Detections below the floor are treated as absent for steering purposes.

@@ -44,6 +44,8 @@ class NavigationProcessor(FrameProcessor):
 
         self._steering_command_name = str(_require_config_key(config, "steering_command"))
         self._stick_magnitude = int(_require_config_key(config, "stick_magnitude"))
+        self._character_anchor_x = int(_require_config_key(config, "character_anchor_x"))
+        self._character_anchor_y = int(_require_config_key(config, "character_anchor_y"))
         self._search_grace_ticks = int(_require_config_key(config, "search_grace_ticks"))
         self._arrival_confirm_ticks = int(_require_config_key(config, "arrival_confirm_ticks"))
         self._recent_movement_window_ticks = int(_require_config_key(config, "recent_movement_window_ticks"))
@@ -51,6 +53,10 @@ class NavigationProcessor(FrameProcessor):
 
         if self._stick_magnitude <= 0:
             raise ValueError("navigation config stick_magnitude must be positive")
+        if self._character_anchor_x <= 0:
+            raise ValueError("navigation config character_anchor_x must be a positive integer")
+        if self._character_anchor_y <= 0:
+            raise ValueError("navigation config character_anchor_y must be a positive integer")
         if self._search_grace_ticks <= 0:
             raise ValueError("navigation config search_grace_ticks must be positive")
         if self._arrival_confirm_ticks <= 0:
@@ -167,7 +173,7 @@ class NavigationProcessor(FrameProcessor):
         if detection is None:
             return None
 
-        steering = _steering_from_detection(frame, detection)
+        steering = self._steering_from_detection(frame, detection)
         if steering is None:
             return None
 
@@ -222,6 +228,34 @@ class NavigationProcessor(FrameProcessor):
         _ = state
         _ = state_diff
 
+    def _steering_from_detection(self, frame: StampedFrame, detection: Detection) -> SteeringVector | None:
+        x, y, w, h = detection.bbox
+        arrow_center_x = x + (w / 2.0)
+        arrow_center_y = y + (h / 2.0)
+
+        frame_height, frame_width = frame.frame.shape[:2]
+        if self._character_anchor_x >= frame_width:
+            raise ValueError(
+                "navigation config character_anchor_x is out of bounds for captured frame: "
+                f"character_anchor_x={self._character_anchor_x}, frame_dimensions={frame_width}x{frame_height}"
+            )
+        if self._character_anchor_y >= frame_height:
+            raise ValueError(
+                "navigation config character_anchor_y is out of bounds for captured frame: "
+                f"character_anchor_y={self._character_anchor_y}, frame_dimensions={frame_width}x{frame_height}"
+            )
+
+        anchor_x = float(self._character_anchor_x)
+        anchor_y = float(self._character_anchor_y)
+
+        delta_x = arrow_center_x - anchor_x
+        delta_y = arrow_center_y - anchor_y
+        magnitude = math.hypot(delta_x, delta_y)
+        if magnitude <= 0.0:
+            return None
+
+        return SteeringVector(x=(delta_x / magnitude), y=(delta_y / magnitude))
+
 
 def _require_config_key(config: dict[str, Any], key: str) -> Any:
     if key not in config:
@@ -243,24 +277,6 @@ def _select_target_detection(
     return max(filtered, key=lambda det: det.confidence)
 
 
-def _steering_from_detection(frame: StampedFrame, detection: Detection) -> SteeringVector | None:
-    x, y, w, h = detection.bbox
-    arrow_center_x = x + (w / 2.0)
-    arrow_center_y = y + (h / 2.0)
-
-    frame_height, frame_width = frame.frame.shape[:2]
-    anchor_x = frame_width / 2.0
-    anchor_y = frame_height / 2.0
-
-    delta_x = arrow_center_x - anchor_x
-    delta_y = arrow_center_y - anchor_y
-    magnitude = math.hypot(delta_x, delta_y)
-    if magnitude <= 0.0:
-        return None
-
-    return SteeringVector(x=(delta_x / magnitude), y=(delta_y / magnitude))
-
-
 def _duration_ms_to_ticks(duration_ms: int, fps: float) -> int:
     if duration_ms <= 0:
         raise ValueError("duration_ms must be positive")
@@ -279,3 +295,4 @@ def _capture_fps_from_services(services: Mapping[str, Any]) -> float:
 
 def _clamp(value: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, value))
+

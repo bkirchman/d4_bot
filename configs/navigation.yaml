@@ -1,6 +1,8 @@
 ﻿navigation:
   steering_command: move_nav_burst
-  stick_magnitude: 64
+  stick_magnitude: 100
+  character_anchor_x: 960
+  character_anchor_y: 450
   search_grace_ticks: 24
   arrival_confirm_ticks: 12
   recent_movement_window_ticks: 30
