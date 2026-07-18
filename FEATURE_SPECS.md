@@ -208,7 +208,7 @@ Schemas are specified as key tables. All files are YAML. All keys snake_case. Th
 
 - **Purpose:** detect the destination pin on the minimap as a second arrival signal, independent of the nav_arrow detector. See ADR-015.
 - **Surface:** `MinimapPinDetector(config: dict, template_path: str)` implementing the framework detector interface. Consumes `StampedFrame`, produces `pin_visible: bool` and `pin_position: tuple[int, int] | None` (position in full-frame pixel coordinates, or None if not visible).
-- **Method:** `cv2.matchTemplate` with `TM_CCOEFF_NORMED` correlation. Crops the search ROI from the frame, matches against the loaded template, thresholds the max correlation. Above threshold: `pin_visible=True`, `pin_position` is the match location's center in full-frame coordinates. Below threshold: `pin_visible=False`, `pin_position=None`.
+- **Method:** `cv2.matchTemplate` with `TM_CCOEFF_NORMED` correlation and an alpha-derived mask when the template PNG has transparency. Templates are loaded with `IMREAD_UNCHANGED` to preserve alpha. If alpha exists, opaque pixels form the match mask; transparent pixels are ignored during correlation. Crops the search ROI from the frame, matches against the loaded template, thresholds the max correlation. Above threshold: `pin_visible=True`, `pin_position` is the match location's center in full-frame coordinates. Below threshold: `pin_visible=False`, `pin_position=None`.
 - **Runtime config (from `navigation.yaml`):**
   - `minimap_pin_template_path: str` — path relative to config directory. Default: `minimap_pin_template.png`.
   - `minimap_pin_search_roi_x1: int` — left edge of search ROI (pixel column).

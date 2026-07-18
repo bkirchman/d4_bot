@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+import sys
 
 from framework.interfaces import StampedFrame
 
@@ -18,7 +19,8 @@ class MinimapPinResult:
 class MinimapPinDetector:
     config: dict[str, Any]
     template_path: str | Path
-    _template: Any = field(init=False, repr=False)
+    _template_bgr: Any = field(init=False, repr=False)
+    _template_mask: Any | None = field(init=False, repr=False)
     _template_width: int = field(init=False, repr=False)
     _template_height: int = field(init=False, repr=False)
     _search_roi: tuple[int, int, int, int] = field(init=False, repr=False)
@@ -39,8 +41,8 @@ class MinimapPinDetector:
         if not 0.0 <= self._match_threshold <= 1.0:
             raise ValueError("minimap_pin_match_threshold must be between 0.0 and 1.0")
 
-        self._template = self._load_template(Path(self.template_path))
-        self._template_height, self._template_width = self._template.shape[:2]
+        self._template_bgr, self._template_mask = self._load_template(Path(self.template_path))
+        self._template_height, self._template_width = self._template_bgr.shape[:2]
         if self._template_height <= 0 or self._template_width <= 0:
             raise ValueError(f"template image '{self.template_path}' is empty")
 
@@ -71,7 +73,15 @@ class MinimapPinDetector:
         if search_region.shape[0] < self._template_height or search_region.shape[1] < self._template_width:
             raise ValueError("search ROI is smaller than the template image")
 
-        match = cv2.matchTemplate(search_region, self._template, cv2.TM_CCOEFF_NORMED)
+        if self._template_mask is None:
+            match = cv2.matchTemplate(search_region, self._template_bgr, cv2.TM_CCOEFF_NORMED)
+        else:
+            match = cv2.matchTemplate(
+                search_region,
+                self._template_bgr,
+                cv2.TM_CCOEFF_NORMED,
+                mask=self._template_mask,
+            )
         _, max_value, _, max_loc = cv2.minMaxLoc(match)
 
         center_x = x1 + int(max_loc[0]) + (self._template_width // 2)
@@ -134,12 +144,31 @@ class MinimapPinDetector:
         return self.config[key]
 
     @staticmethod
-    def _load_template(path: Path) -> Any:
+    def _load_template(path: Path) -> tuple[Any, Any | None]:
         cv2 = MinimapPinDetector._import_cv2()
-        template = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        template = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
         if template is None or template.size == 0:
             raise ValueError(f"failed to load template image '{path}'")
-        return template
+
+        if template.ndim != 3:
+            raise ValueError(f"template image '{path}' must have 3 or 4 channels")
+
+        channel_count = template.shape[2]
+        if channel_count == 4:
+            template_bgr = template[:, :, :3]
+            alpha = template[:, :, 3]
+            mask = (alpha > 0).astype("uint8") * 255
+            return template_bgr, mask
+
+        if channel_count == 3:
+            if path.suffix.lower() == ".png":
+                print(
+                    f"warning: template '{path}' is a PNG without alpha; matching may be suboptimal",
+                    file=sys.stderr,
+                )
+            return template, None
+
+        raise ValueError(f"template image '{path}' must have 3 or 4 channels, got {channel_count}")
 
     @staticmethod
     def _import_cv2() -> Any:
