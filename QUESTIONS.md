@@ -23,27 +23,31 @@
 7. In-place YOLOv5→YOLOv8 conversion attempted once and failed
    (head architecture divergence). Retraining is the only clean path.
    Applies to Halo H0 too — gen3's models are v5-era.
-- **Minimap-pin detection as a disambiguation signal for arrival vs
-  detector failure.** The current arrival heuristic ("nav arrow
-  vanished + recent movement + sustained lost") cannot distinguish
-  real arrival from a nav-arrow detector failure while a pin is
-  still active. If we can detect the pin marker on the minimap
-  independently:
-    - Pin visible + no arrow detected: arrow detector is failing on
-      an active waypoint. Do NOT terminate as arrived; extend
-      SEARCHING or trigger a diagnostic.
-    - No pin visible + no arrow detected: legitimate arrival or
-      unpinned. Current terminal-transition logic applies.
-    - Pin visible + arrow detected: normal navigation.
-    - No pin visible + arrow detected: cross-check indicates false
-      positive arrow detection (relevant to nav_arrow YOLOv5
-      false-positive shelf, also banked).
-  Adds a new detector (minimap-pin) and a cross-check in the
-  arrival/searching decision. Belongs to a future phase — probably
-  packaged with the nav_arrow model retrain rather than as a
-  standalone task, since improved arrow reliability plus pin
-  cross-check together produce a substantially better navigation
-  signal. Do not implement in Phase 4a or 4b.
+- ~~**Minimap-pin detection as a disambiguation signal for arrival vs
+   detector failure.** The current arrival heuristic ("nav arrow
+   vanished + recent movement + sustained lost") cannot distinguish
+   real arrival from a nav-arrow detector failure while a pin is
+   still active. If we can detect the pin marker on the minimap
+   independently:
+      - Pin visible + no arrow detected: arrow detector is failing on
+         an active waypoint. Do NOT terminate as arrived; extend
+         SEARCHING or trigger a diagnostic.
+      - No pin visible + no arrow detected: legitimate arrival or
+         unpinned. Current terminal-transition logic applies.
+      - Pin visible + arrow detected: normal navigation.
+      - No pin visible + arrow detected: cross-check indicates false
+         positive arrow detection (relevant to nav_arrow YOLOv5
+         false-positive shelf, also banked).
+   Adds a new detector (minimap-pin) and a cross-check in the
+   arrival/searching decision. Belongs to a future phase — probably
+   packaged with the nav_arrow model retrain rather than as a
+   standalone task, since improved arrow reliability plus pin
+   cross-check together produce a substantially better navigation
+   signal. Do not implement in Phase 4a or 4b.~~
+   **Resolved 2026-07-18:** Landed as Phase 4a.1 via ADR-015.
+   Compound-signal design (both nav_arrows and pin_visible must be
+   lost for arrival) with backstop timeout on nav_arrow-only if pin
+   detector fails.
 
 ## Doc updates pending
 8. ~~**Core-interface drift is a recurring failure mode.** Two incidents now (this one; the earlier `process` argument name churn). Before any phase whose prompt cites a framework class signature, the standing rule is: have Copilot quote the actual source file back before writing code. Consider adding a lightweight signature-check script that greps FEATURE_SPECS §0 signatures against framework source and fails on mismatch — deferred, but worth a session when it bites a third time.~~
@@ -76,3 +80,15 @@
     today problem; a "before we care about regressions" problem.
 
 - **Overlapping-burst emission (ADR-014) has downstream implications for Phase 4b stuck detection.** F-NAV-3's stuck definition currently keys on "movement burst active or just completed" — an anchor that doesn't exist under continuous emission. Proposed replacement anchor is banked in F-NAV-3's impact bullet. Confirm the replacement wording and add unit tests during Phase 4b implementation session, not before.
+
+## Resolved
+- ~~Arrival heuristic under overlap is brittle to prolonged detector
+   dropouts.~~ **Resolved 2026-07-18:** Not previously banked; noting
+   here for provenance. Under ADR-014's overlapping-burst emission,
+   "recent movement" was always true because bursts are continuous,
+   which meant arrival hinged entirely on frames_since_guide_lost >=
+   arrival_confirm_ticks. A prolonged detector dropout would trigger
+   spurious mid-transit arrival. Mitigated in Phase 4a by tuning
+   arrival_confirm_ticks up to 120 (2 seconds); eliminated in Phase
+   4a.1 via ADR-015's compound-signal arrival, with arrival_confirm_ticks
+   tuned back to 24.
