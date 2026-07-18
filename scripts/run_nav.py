@@ -12,6 +12,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from framework.contrib.config import load_layered_config
 from framework.contrib.recording import FrameRecorder
+from framework.interfaces import Action
 from framework.loop import BotLoop
 from framework.temporal import FrameHistory
 
@@ -28,6 +29,10 @@ REQUIRED_NAV_CONFIG_KEYS = (
     "search_grace_ticks",
     "arrival_confirm_ticks",
     "recent_movement_window_ticks",
+    "emission_interval_ms",
+    "burst_duration_ms",
+    "significant_direction_change_degrees",
+    "stale_direction_tolerance_ticks",
     "history_capacity",
 )
 
@@ -82,6 +87,7 @@ def main() -> int:
     bursts_emitted = 0
     prev_nav_state = processor.nav_state
     last_frame_id = -1
+    last_logged_skip_frame_id: int | None = None
 
     try:
         loop.start()
@@ -98,8 +104,22 @@ def main() -> int:
                         f"[f={frame.frame_id}] BURST "
                         f"move_x={burst_payload['move_x']} "
                         f"move_y={burst_payload['move_y']} "
-                        f"duration_ms={burst_payload['move_duration']}"
+                        f"duration_ms={burst_payload['move_duration']} "
+                        f"sig_change={'Y' if processor.last_emission_sig_change else 'N'} "
+                        f"stale_reuse={'Y' if processor.last_emission_stale_reuse else 'N'}"
                     )
+
+            if args.verbose:
+                skip_frame_id = processor.last_skip_emission_frame_id
+                skip_stale_ticks = processor.last_skip_emission_stale_ticks
+                if (
+                    skip_frame_id is not None
+                    and skip_stale_ticks is not None
+                    and skip_frame_id == frame.frame_id
+                    and skip_frame_id != last_logged_skip_frame_id
+                ):
+                    print(f"[f={skip_frame_id}] SKIP_EMISSION stale_ticks={skip_stale_ticks}")
+                    last_logged_skip_frame_id = skip_frame_id
 
             if args.verbose and processor.nav_state != prev_nav_state:
                 print(f"[f={frame.frame_id}] transition: {prev_nav_state.name} -> {processor.nav_state.name}")
@@ -107,16 +127,26 @@ def main() -> int:
 
             if args.verbose and (runtime_ticks % 30 == 0):
                 nav_arrows_count = len(getattr(nav_arrow_detector, "last_result", []))
+                nav_guide_lost_frame_id = processor.nav_guide_lost_frame_id
+                frames_since_guide_lost = (
+                    frame.frame_id - nav_guide_lost_frame_id + 1
+                    if nav_guide_lost_frame_id is not None
+                    else None
+                )
                 print(
                     f"[f={frame.frame_id}] "
                     f"state={processor.nav_state.name} "
                     f"nav_arrows={nav_arrows_count} "
+                    f"last_sig_change_f={processor.last_significant_change_frame_id} "
+                    f"stale_ticks={processor.stale_ticks_since_non_stale_detection} "
+                    f"frames_since_guide_lost={frames_since_guide_lost} "
+                    f"last_burst_frame_id={processor.last_burst_frame_id} "
                     f"bursts={bursts_emitted} "
                     f"terminal={processor.terminal_status}"
                 )
 
             if recorder is not None:
-                recorder.record(frame, action)
+                recorder.record(frame, _decorate_action_for_recording(action, processor))
             if processor.is_terminal:
                 break
     finally:
@@ -174,6 +204,21 @@ def _validate_required_navigation_keys(config: dict[str, Any]) -> None:
     for key in REQUIRED_NAV_CONFIG_KEYS:
         if key not in config:
             raise ValueError(f"navigation config missing required key '{key}'")
+
+
+def _decorate_action_for_recording(action: Action | None, processor: NavigationProcessor) -> Action | None:
+    if action is None:
+        return None
+    if not isinstance(action.payload, dict):
+        return action
+    if "move_duration" not in action.payload:
+        return action
+
+    payload = dict(action.payload)
+    payload["__nav_sig_change"] = bool(processor.last_emission_sig_change)
+    payload["__nav_stale_reuse"] = bool(processor.last_emission_stale_reuse)
+    payload["__nav_stale_ticks"] = int(processor.stale_ticks_since_non_stale_detection)
+    return Action(frame_id=action.frame_id, timestamp=action.timestamp, payload=payload)
 
 
 if __name__ == "__main__":

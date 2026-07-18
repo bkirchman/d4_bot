@@ -3,6 +3,10 @@
   stick_magnitude: 100
   character_anchor_x: 960
   character_anchor_y: 450
+  emission_interval_ms: 200
+  burst_duration_ms: 400
+  significant_direction_change_degrees: 15.0
+  stale_direction_tolerance_ticks: 3
   search_grace_ticks: 24
   arrival_confirm_ticks: 12
   recent_movement_window_ticks: 30

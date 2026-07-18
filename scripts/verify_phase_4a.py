@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from framework.contrib.config import load_layered_config
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -31,6 +33,9 @@ def parse_args() -> argparse.Namespace:
 class RecordedAction:
     frame_id: int
     payload: dict[str, Any]
+    sig_change: bool
+    stale_reuse: bool
+    stale_ticks: int
 
 
 def main() -> int:
@@ -66,6 +71,11 @@ def _check_latency_discipline(config_dir: Path, record_dir: Path) -> None:
     capture_cfg = hardware["capture"]
     fps = float(capture_cfg["fps"])
     latency_frames = int(capture_cfg["latency_frames"])
+    season = str(hardware["active_season"])
+    nav_config = _load_navigation_config(config_dir=config_dir, season=season)
+
+    emission_interval_ms = int(nav_config["emission_interval_ms"])
+    stale_direction_tolerance_ticks = int(nav_config["stale_direction_tolerance_ticks"])
 
     steering_actions = _load_steering_actions(actions_path)
     if len(steering_actions) < 2:
@@ -73,18 +83,45 @@ def _check_latency_discipline(config_dir: Path, record_dir: Path) -> None:
             "Need at least two steering actions in actions.jsonl for latency-discipline audit"
         )
 
-    failures: list[str] = []
-    for prev_action, next_action in zip(steering_actions, steering_actions[1:]):
-        prev_duration_ms = int(prev_action.payload["move_duration"])
-        min_gap = latency_frames + _duration_ms_to_ticks(prev_duration_ms, fps)
-        observed_gap = next_action.frame_id - prev_action.frame_id
+    expected_gap_ticks = _duration_ms_to_ticks(emission_interval_ms, fps)
+    gap_tolerance_ticks = 2
+    min_allowed_gap_ticks = max(1, expected_gap_ticks - gap_tolerance_ticks)
+    max_allowed_gap_ticks = expected_gap_ticks + gap_tolerance_ticks
+    min_observed_gap_ticks = min(
+        next_action.frame_id - prev_action.frame_id
+        for prev_action, next_action in zip(steering_actions, steering_actions[1:])
+    )
 
-        if observed_gap < min_gap:
+    failures: list[str] = []
+    if min_observed_gap_ticks < min_allowed_gap_ticks or min_observed_gap_ticks > max_allowed_gap_ticks:
+        failures.append(
+            "emission cadence violation: "
+            f"min_observed_gap={min_observed_gap_ticks} "
+            f"expected_gap={expected_gap_ticks} tolerance=+/-{gap_tolerance_ticks}"
+        )
+
+    significant_change_actions = [action for action in steering_actions if action.sig_change]
+    for prev_change, next_change in zip(significant_change_actions, significant_change_actions[1:]):
+        min_sig_gap = latency_frames
+        observed_sig_gap = next_change.frame_id - prev_change.frame_id
+        if observed_sig_gap < min_sig_gap:
             failures.append(
-                "gap violation: "
-                f"prev_frame_id={prev_action.frame_id} next_frame_id={next_action.frame_id} "
-                f"observed_gap={observed_gap} required_min_gap={min_gap}"
+                "significant-change spacing violation: "
+                f"prev_frame_id={prev_change.frame_id} next_frame_id={next_change.frame_id} "
+                f"observed_gap={observed_sig_gap} required_min_gap={min_sig_gap}"
             )
+
+    max_observed_stale_ticks = 0
+    for action in steering_actions:
+        if action.stale_reuse and action.stale_ticks > max_observed_stale_ticks:
+            max_observed_stale_ticks = action.stale_ticks
+
+    if max_observed_stale_ticks > stale_direction_tolerance_ticks:
+        failures.append(
+            "stale-direction tolerance violation: "
+            f"max_observed_stale_ticks={max_observed_stale_ticks} "
+            f"tolerance_ticks={stale_direction_tolerance_ticks}"
+        )
 
     if failures:
         joined = "\n".join(failures)
@@ -92,7 +129,12 @@ def _check_latency_discipline(config_dir: Path, record_dir: Path) -> None:
 
     print(
         f"  steering_actions={len(steering_actions)} "
-        f"latency_frames={latency_frames} fps={fps:.1f}"
+        f"latency_frames={latency_frames} fps={fps:.1f} "
+        f"expected_emission_gap_ticks={expected_gap_ticks} "
+        f"min_observed_gap_ticks={min_observed_gap_ticks} "
+        f"max_allowed_gap_ticks={max_allowed_gap_ticks} "
+        f"significant_changes={len(significant_change_actions)} "
+        f"max_observed_stale_ticks={max_observed_stale_ticks}"
     )
 
 
@@ -123,8 +165,28 @@ def _load_steering_actions(actions_path: Path) -> list[RecordedAction]:
             continue
         if "move_x" not in action_payload or "move_y" not in action_payload:
             continue
+        if "__nav_sig_change" not in action_payload:
+            raise RuntimeError(
+                "actions.jsonl missing __nav_sig_change metadata; record with updated run_nav.py"
+            )
+        if "__nav_stale_reuse" not in action_payload:
+            raise RuntimeError(
+                "actions.jsonl missing __nav_stale_reuse metadata; record with updated run_nav.py"
+            )
+        if "__nav_stale_ticks" not in action_payload:
+            raise RuntimeError(
+                "actions.jsonl missing __nav_stale_ticks metadata; record with updated run_nav.py"
+            )
 
-        steering_actions.append(RecordedAction(frame_id=frame_id, payload=dict(action_payload)))
+        steering_actions.append(
+            RecordedAction(
+                frame_id=frame_id,
+                payload=dict(action_payload),
+                sig_change=bool(action_payload["__nav_sig_change"]),
+                stale_reuse=bool(action_payload["__nav_stale_reuse"]),
+                stale_ticks=int(action_payload["__nav_stale_ticks"]),
+            )
+        )
 
     for prev, curr in zip(steering_actions, steering_actions[1:]):
         if curr.frame_id <= prev.frame_id:
@@ -142,6 +204,21 @@ def _duration_ms_to_ticks(duration_ms: int, fps: float) -> int:
     if fps <= 0:
         raise RuntimeError(f"fps must be positive, got {fps}")
     return max(1, int((duration_ms * fps + 999.0) // 1000.0))
+
+
+def _load_navigation_config(config_dir: Path, season: str) -> dict[str, Any]:
+    base_path = config_dir / "navigation.yaml"
+    overrides_path = config_dir / "seasons" / season / "overrides.yaml"
+
+    if overrides_path.exists():
+        merged = load_layered_config(base_path, overrides_path)
+    else:
+        merged = load_layered_config(base_path)
+
+    if isinstance(merged.get("navigation"), dict):
+        return dict(merged["navigation"])
+
+    return dict(merged)
 
 
 def _require_yes(prompt: str) -> None:

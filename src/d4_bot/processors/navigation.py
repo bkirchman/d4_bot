@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 import math
-from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Mapping, Optional
@@ -11,6 +10,10 @@ from framework.contrib.ml import Detection
 from framework.interfaces import Action, FrameProcessor, StampedFrame
 
 from d4_bot.state import GameState, GameStateUpdater, StateDiff
+
+
+# ADR-014: retain a small settling window after latency before verdicts resume.
+PRE_EFFECT_SETTLING_TICKS = 2
 
 
 class NavigationState(str, Enum):
@@ -49,6 +52,12 @@ class NavigationProcessor(FrameProcessor):
         self._search_grace_ticks = int(_require_config_key(config, "search_grace_ticks"))
         self._arrival_confirm_ticks = int(_require_config_key(config, "arrival_confirm_ticks"))
         self._recent_movement_window_ticks = int(_require_config_key(config, "recent_movement_window_ticks"))
+        self._emission_interval_ms = int(_require_config_key(config, "emission_interval_ms"))
+        self._burst_duration_ms = int(_require_config_key(config, "burst_duration_ms"))
+        self._significant_direction_change_degrees = float(
+            _require_config_key(config, "significant_direction_change_degrees")
+        )
+        self._stale_direction_tolerance_ticks = int(_require_config_key(config, "stale_direction_tolerance_ticks"))
         self._target_class_name = config.get("target_class_name")
 
         if self._stick_magnitude <= 0:
@@ -63,19 +72,57 @@ class NavigationProcessor(FrameProcessor):
             raise ValueError("navigation config arrival_confirm_ticks must be positive")
         if self._recent_movement_window_ticks <= 0:
             raise ValueError("navigation config recent_movement_window_ticks must be positive")
+        if self._emission_interval_ms <= 0:
+            raise ValueError("navigation config emission_interval_ms must be positive")
+        if self._burst_duration_ms <= 0:
+            raise ValueError("navigation config burst_duration_ms must be positive")
+        if self._emission_interval_ms >= self._burst_duration_ms:
+            raise ValueError(
+                "navigation config emission_interval_ms must be less than burst_duration_ms so bursts overlap"
+            )
+        if self._significant_direction_change_degrees <= 0.0:
+            raise ValueError("navigation config significant_direction_change_degrees must be positive")
+        if self._significant_direction_change_degrees > 180.0:
+            raise ValueError("navigation config significant_direction_change_degrees must be <= 180.0")
+        if self._stale_direction_tolerance_ticks < 1 or self._stale_direction_tolerance_ticks > 30:
+            raise ValueError("navigation config stale_direction_tolerance_ticks must be between 1 and 30")
 
         self._steering_command_factory = commands.get(self._steering_command_name)
+        steering_payload = dict(self._steering_command_factory())
+        if "move_duration" not in steering_payload:
+            raise ValueError(
+                f"steering command '{self._steering_command_name}' must include move_duration in payload"
+            )
+        steering_duration_ms = int(steering_payload["move_duration"])
+        if steering_duration_ms <= 0:
+            raise ValueError("steering move_duration must be positive")
+        if steering_duration_ms != self._burst_duration_ms:
+            raise ValueError(
+                "navigation config burst_duration_ms must match steering command move_duration "
+                f"(burst_duration_ms={self._burst_duration_ms}, move_duration={steering_duration_ms})"
+            )
 
         self._state = NavigationState.STEERING
         self._terminal_status: str | None = None
         self._prev_state: GameState | None = None
 
-        self._pre_effect_until_frame_exclusive: int | None = None
-        self._last_burst_real_completion_frame_id: int | None = None
+        self._last_significant_change_frame_id: int | None = None
 
         self._search_started_frame_id: int | None = None
-        self._arrival_lost_ticks = 0
-        self._recent_movement: deque[bool] = deque(maxlen=self._recent_movement_window_ticks)
+        self._nav_lost_started_frame_id: int | None = None
+        self._last_burst_emitted_frame_id: int | None = None
+        self._last_emission_attempt_frame_id: int | None = None
+
+        self._last_known_good_direction: SteeringVector | None = None
+        self._last_known_good_direction_frame_id: int | None = None
+        self._previous_burst_direction: SteeringVector | None = None
+        self._last_non_stale_detection_observed_frame_id: int | None = None
+
+        self._stale_ticks_since_non_stale_detection = 0
+        self._last_emission_sig_change = False
+        self._last_emission_stale_reuse = False
+        self._last_skip_emission_frame_id: int | None = None
+        self._last_skip_emission_stale_ticks: int | None = None
 
     @property
     def nav_state(self) -> NavigationState:
@@ -84,6 +131,38 @@ class NavigationProcessor(FrameProcessor):
     @property
     def terminal_status(self) -> str | None:
         return self._terminal_status
+
+    @property
+    def last_burst_frame_id(self) -> int | None:
+        return self._last_burst_emitted_frame_id
+
+    @property
+    def nav_guide_lost_frame_id(self) -> int | None:
+        return self._nav_lost_started_frame_id
+
+    @property
+    def last_significant_change_frame_id(self) -> int | None:
+        return self._last_significant_change_frame_id
+
+    @property
+    def stale_ticks_since_non_stale_detection(self) -> int:
+        return self._stale_ticks_since_non_stale_detection
+
+    @property
+    def last_emission_sig_change(self) -> bool:
+        return self._last_emission_sig_change
+
+    @property
+    def last_emission_stale_reuse(self) -> bool:
+        return self._last_emission_stale_reuse
+
+    @property
+    def last_skip_emission_frame_id(self) -> int | None:
+        return self._last_skip_emission_frame_id
+
+    @property
+    def last_skip_emission_stale_ticks(self) -> int | None:
+        return self._last_skip_emission_stale_ticks
 
     @property
     def status(self) -> str:
@@ -104,46 +183,29 @@ class NavigationProcessor(FrameProcessor):
         state = self._updater.update(frame)
         state_diff = self._state_differ(self._prev_state, state)
         self._prev_state = state
-        self._recent_movement.append(state.character_moving)
+        self._update_stale_ticks_metric(frame.frame_id, state)
 
         # Phase 4b seam: stuck-recovery integration is intentionally omitted in Phase 4a.
         self._phase4b_stuck_recovery_seam(state, state_diff)
 
-        if self._state is NavigationState.PRE_EFFECT:
-            if self._in_pre_effect_window(frame.frame_id):
-                return None
-            self._state = NavigationState.STEERING
-
-        nav_is_lost = self._is_nav_lost(state)
-        if nav_is_lost and self._has_recent_movement_context():
-            self._arrival_lost_ticks += 1
-            if self._arrival_lost_ticks >= self._arrival_confirm_ticks:
-                self._state = NavigationState.ARRIVED
-                self._terminal_status = "arrived"
-                return None
-        else:
-            self._arrival_lost_ticks = 0
-
         if self._state is NavigationState.SEARCHING:
             return self._tick_searching(frame, state)
-
-        if nav_is_lost and not self._has_recent_movement_context():
-            self._state = NavigationState.SEARCHING
-            self._search_started_frame_id = frame.frame_id
-            return None
 
         if self._state is NavigationState.ARRIVED:
             return None
 
-        if not state.nav_arrows:
-            return None
+        action = self._maybe_emit_on_cadence(frame, state, services)
 
-        if not self._detections_postdate_previous_completion(state):
-            return None
+        if self._in_pre_effect_window(frame.frame_id):
+            self._state = NavigationState.PRE_EFFECT
+            return action
 
-        action = self._emit_steering_action(frame, state, services)
-        if action is None:
-            return None
+        if self._state is NavigationState.PRE_EFFECT:
+            self._state = NavigationState.STEERING
+
+        # STEERING no-arrows decision (outside PRE_EFFECT): arrival path vs searching path.
+        if not state.nav_arrows and self._stale_tolerance_exhausted(frame.frame_id):
+            return self._handle_missing_nav_guide(frame)
 
         return action
 
@@ -151,7 +213,7 @@ class NavigationProcessor(FrameProcessor):
         if state.nav_arrows:
             self._state = NavigationState.STEERING
             self._search_started_frame_id = None
-            self._arrival_lost_ticks = 0
+            self._nav_lost_started_frame_id = None
             return None
 
         if self._search_started_frame_id is None:
@@ -163,20 +225,27 @@ class NavigationProcessor(FrameProcessor):
 
         return None
 
+    def _handle_missing_nav_guide(self, frame: StampedFrame) -> Optional[Action]:
+        if self._nav_lost_started_frame_id is None:
+            self._nav_lost_started_frame_id = frame.frame_id
+
+        nav_lost_ticks = (frame.frame_id - self._nav_lost_started_frame_id) + 1
+        if self._has_recent_burst_context(frame.frame_id):
+            if nav_lost_ticks >= self._arrival_confirm_ticks:
+                self._state = NavigationState.ARRIVED
+                self._terminal_status = "arrived"
+            return None
+
+        self._state = NavigationState.SEARCHING
+        self._search_started_frame_id = frame.frame_id
+        return None
+
     def _emit_steering_action(
         self,
         frame: StampedFrame,
-        state: GameState,
-        services: Mapping[str, Any],
+        steering: SteeringVector,
+        stale_reuse: bool,
     ) -> Action | None:
-        detection = _select_target_detection(state.nav_arrows, self._target_class_name)
-        if detection is None:
-            return None
-
-        steering = self._steering_from_detection(frame, detection)
-        if steering is None:
-            return None
-
         payload = dict(self._steering_command_factory())
         if "move_duration" not in payload:
             raise ValueError(
@@ -192,37 +261,130 @@ class NavigationProcessor(FrameProcessor):
         payload["move_x"] = _clamp(move_x, -self._stick_magnitude, self._stick_magnitude)
         payload["move_y"] = _clamp(move_y, -self._stick_magnitude, self._stick_magnitude)
 
-        action = Action(frame_id=frame.frame_id, timestamp=frame.timestamp, payload=payload)
+        sig_change = self._is_significant_direction_change(steering)
 
-        fps = _capture_fps_from_services(services)
-        duration_ticks = _duration_ms_to_ticks(duration_ms=duration_ms, fps=fps)
-        self._last_burst_real_completion_frame_id = frame.frame_id + duration_ticks
-        self._pre_effect_until_frame_exclusive = frame.frame_id + self._latency_frames + duration_ticks
-        self._state = NavigationState.PRE_EFFECT
+        action = Action(frame_id=frame.frame_id, timestamp=frame.timestamp, payload=payload)
+        self._last_burst_emitted_frame_id = frame.frame_id
+        self._last_emission_sig_change = sig_change
+        self._last_emission_stale_reuse = stale_reuse
+        self._last_skip_emission_frame_id = None
+        self._last_skip_emission_stale_ticks = None
+        self._previous_burst_direction = steering
+
+        if sig_change:
+            self._last_significant_change_frame_id = frame.frame_id
+            self._state = NavigationState.PRE_EFFECT
 
         return action
 
     def _in_pre_effect_window(self, frame_id: int) -> bool:
-        if self._pre_effect_until_frame_exclusive is None:
+        if self._last_significant_change_frame_id is None:
             return False
-        return frame_id < self._pre_effect_until_frame_exclusive
+        return frame_id < (
+            self._last_significant_change_frame_id + self._latency_frames + PRE_EFFECT_SETTLING_TICKS
+        )
 
-    def _detections_postdate_previous_completion(self, state: GameState) -> bool:
-        if self._last_burst_real_completion_frame_id is None:
+    def _has_recent_burst_context(self, frame_id: int) -> bool:
+        if self._last_burst_emitted_frame_id is None:
+            return False
+        return (frame_id - self._last_burst_emitted_frame_id) <= self._recent_movement_window_ticks
+
+    def _maybe_emit_on_cadence(
+        self,
+        frame: StampedFrame,
+        state: GameState,
+        services: Mapping[str, Any],
+    ) -> Action | None:
+        self._last_emission_sig_change = False
+        self._last_emission_stale_reuse = False
+
+        if not self._emission_due(frame.frame_id, services):
+            return None
+
+        self._last_emission_attempt_frame_id = frame.frame_id
+        steering, stale_reuse, stale_ticks, stale_exhausted = self._select_direction_for_emission(frame, state)
+        if steering is None:
+            if stale_exhausted:
+                self._last_skip_emission_frame_id = frame.frame_id
+                self._last_skip_emission_stale_ticks = stale_ticks
+            return None
+
+        return self._emit_steering_action(
+            frame=frame,
+            steering=steering,
+            stale_reuse=stale_reuse,
+        )
+
+    def _emission_due(self, frame_id: int, services: Mapping[str, Any]) -> bool:
+        if self._last_emission_attempt_frame_id is None:
             return True
-        if state.nav_arrows_frame_id is None:
-            return False
-        return state.nav_arrows_frame_id > self._last_burst_real_completion_frame_id
+        fps = _capture_fps_from_services(services)
+        elapsed_ms = (frame_id - self._last_emission_attempt_frame_id) * (1000.0 / fps)
+        return elapsed_ms >= float(self._emission_interval_ms)
 
-    def _is_nav_lost(self, state: GameState) -> bool:
-        if state.nav_arrows:
-            return False
-        if state.nav_arrows_frame_id is None:
-            return False
-        return state.staleness(state.nav_arrows_frame_id) > self._search_grace_ticks
+    def _select_direction_for_emission(
+        self,
+        frame: StampedFrame,
+        state: GameState,
+    ) -> tuple[SteeringVector | None, bool, int, bool]:
+        target_detection = _select_freshest_non_stale_detection(
+            detections=state.nav_arrows,
+            target_class_name=self._target_class_name,
+            stale_after_frame_id=self._direction_stale_after_frame_id(),
+            fallback_frame_id=state.nav_arrows_frame_id,
+        )
 
-    def _has_recent_movement_context(self) -> bool:
-        return any(self._recent_movement)
+        if target_detection is not None:
+            steering = self._steering_from_detection(frame, target_detection)
+            if steering is None:
+                return None, False, self._stale_ticks_since_non_stale_detection, False
+
+            self._last_known_good_direction = steering
+            self._last_known_good_direction_frame_id = frame.frame_id
+            return steering, False, 0, False
+
+        if self._last_known_good_direction is None or self._last_known_good_direction_frame_id is None:
+            return None, False, self._stale_ticks_since_non_stale_detection, False
+
+        stale_ticks = frame.frame_id - self._last_known_good_direction_frame_id
+        if stale_ticks <= self._stale_direction_tolerance_ticks:
+            return self._last_known_good_direction, True, stale_ticks, False
+
+        return None, False, stale_ticks, True
+
+    def _stale_tolerance_exhausted(self, frame_id: int) -> bool:
+        if self._last_known_good_direction_frame_id is None:
+            return True
+        return (frame_id - self._last_known_good_direction_frame_id) > self._stale_direction_tolerance_ticks
+
+    def _direction_stale_after_frame_id(self) -> int | None:
+        if self._last_significant_change_frame_id is None:
+            return None
+        return self._last_significant_change_frame_id + self._latency_frames
+
+    def _update_stale_ticks_metric(self, frame_id: int, state: GameState) -> None:
+        target_detection = _select_freshest_non_stale_detection(
+            detections=state.nav_arrows,
+            target_class_name=self._target_class_name,
+            stale_after_frame_id=self._direction_stale_after_frame_id(),
+            fallback_frame_id=state.nav_arrows_frame_id,
+        )
+        if target_detection is not None:
+            self._last_non_stale_detection_observed_frame_id = frame_id
+            self._stale_ticks_since_non_stale_detection = 0
+            return
+
+        if self._last_non_stale_detection_observed_frame_id is None:
+            self._stale_ticks_since_non_stale_detection = 0
+            return
+
+        self._stale_ticks_since_non_stale_detection = frame_id - self._last_non_stale_detection_observed_frame_id
+
+    def _is_significant_direction_change(self, new_direction: SteeringVector) -> bool:
+        if self._previous_burst_direction is None:
+            return True
+        angle_delta = _angle_difference_degrees(self._previous_burst_direction, new_direction)
+        return angle_delta > self._significant_direction_change_degrees
 
     def _phase4b_stuck_recovery_seam(self, state: GameState, state_diff: StateDiff) -> None:
         _ = state
@@ -277,6 +439,43 @@ def _select_target_detection(
     return max(filtered, key=lambda det: det.confidence)
 
 
+def _select_freshest_non_stale_detection(
+    detections: list[Detection],
+    target_class_name: object,
+    stale_after_frame_id: int | None,
+    fallback_frame_id: int | None,
+) -> Detection | None:
+    filtered = detections
+    if isinstance(target_class_name, str) and target_class_name:
+        filtered = [det for det in detections if det.class_name == target_class_name]
+
+    if not filtered:
+        return None
+
+    eligible: list[Detection] = []
+    for detection in filtered:
+        origin_frame_id = _detection_origin_frame_id(detection, fallback_frame_id)
+        if stale_after_frame_id is None or origin_frame_id > stale_after_frame_id:
+            eligible.append(detection)
+
+    if not eligible:
+        return None
+
+    return max(
+        eligible,
+        key=lambda det: (_detection_origin_frame_id(det, fallback_frame_id), det.confidence),
+    )
+
+
+def _detection_origin_frame_id(detection: Detection, fallback_frame_id: int | None) -> int:
+    detection_frame_id = getattr(detection, "frame_id", None)
+    if isinstance(detection_frame_id, int):
+        return detection_frame_id
+    if fallback_frame_id is not None:
+        return fallback_frame_id
+    return -1
+
+
 def _duration_ms_to_ticks(duration_ms: int, fps: float) -> int:
     if duration_ms <= 0:
         raise ValueError("duration_ms must be positive")
@@ -296,3 +495,9 @@ def _capture_fps_from_services(services: Mapping[str, Any]) -> float:
 def _clamp(value: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, value))
 
+
+def _angle_difference_degrees(previous: SteeringVector, current: SteeringVector) -> float:
+    dot = (previous.x * current.x) + (previous.y * current.y)
+    det = (previous.x * current.y) - (previous.y * current.x)
+    angle = math.degrees(math.atan2(det, dot))
+    return abs(angle)
