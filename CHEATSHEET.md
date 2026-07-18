@@ -4,6 +4,9 @@ One page. When in doubt, start here; this sheet routes you to the right doc.
 
 ---
 
+
+
+
 ## Which document, when
 
 | You are... | Open |
@@ -23,6 +26,38 @@ One page. When in doubt, start here; this sheet routes you to the right doc.
 4. Let it work. Don't micro-review; the verify script is the reviewer.
 5. Run `scripts/verify_phase_N.py`. Fail → route through TROUBLESHOOTING Part 1; two failed corrections → kill the thread, restart at step 2.
 6. Pass → record the `bot_framework` commit hash in the phase header, commit (both repos separately if the framework changed), film your notes, next phase.
+
+## Working with Copilot output
+
+**Verbosity default: minimal.** For any implementation task, Copilot's
+response should include only (a) files read, (b) ambiguities
+encountered and how resolved, and (c) a file-by-file summary of what
+will change in one or two sentences per file. Do NOT paste proposed
+diffs unless the prompt explicitly requests them. Do NOT include full
+file contents in the response. After approval, apply the changes and
+report only `git log -1 --stat` — not the diff.
+
+**Escalation triggers (request full diff review).** Prompts should
+explicitly ask for full diff review when:
+- The change touches core framework interfaces
+	(framework/interfaces.py, framework/loop.py, framework/temporal.py).
+- The change is a full Phase implementation (B-4a, B-4b, etc.).
+- The ADR being implemented is architectural rather than tactical.
+- The change modifies more than three files.
+
+**De-escalation triggers (skip diff review by default).**
+- Bug fix within a single file.
+- Docs-only edits.
+- Config-file edits.
+- Adding logging or diagnostic output.
+
+**How prompts should signal review level.** For high-scrutiny tasks,
+include the line "Show me the proposed diff before I approve." in the
+prompt. For low-scrutiny tasks, no signal needed — the default is
+approve-and-apply.
+
+Commit gate: single commit, message "Add Copilot output verbosity
+policy to CHEATSHEET". Docs-only, no code changes.
 
 ## When something breaks — routing
 
