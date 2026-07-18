@@ -204,6 +204,28 @@ Schemas are specified as key tables. All files are YAML. All keys snake_case. Th
 - **Origin:** Carried (data only).
 - **Complexity:** L. **Acceptance:** FG-1's acceptance harness passes using these exact files.
 
+### F-DET-3 — Minimap-pin detector (`src/d4_bot/detectors/minimap_pin.py`)
+
+- **Purpose:** detect the destination pin on the minimap as a second arrival signal, independent of the nav_arrow detector. See ADR-015.
+- **Surface:** `MinimapPinDetector(config: dict, template_path: str)` implementing the framework detector interface. Consumes `StampedFrame`, produces `pin_visible: bool` and `pin_position: tuple[int, int] | None` (position in full-frame pixel coordinates, or None if not visible).
+- **Method:** `cv2.matchTemplate` with `TM_CCOEFF_NORMED` correlation. Crops the search ROI from the frame, matches against the loaded template, thresholds the max correlation. Above threshold: `pin_visible=True`, `pin_position` is the match location's center in full-frame coordinates. Below threshold: `pin_visible=False`, `pin_position=None`.
+- **Runtime config (from `navigation.yaml`):**
+  - `minimap_pin_template_path: str` — path relative to config directory. Default: `minimap_pin_template.png`.
+  - `minimap_pin_search_roi_x1: int` — left edge of search ROI (pixel column).
+  - `minimap_pin_search_roi_y1: int` — top edge of search ROI (pixel row).
+  - `minimap_pin_search_roi_x2: int` — right edge of search ROI.
+  - `minimap_pin_search_roi_y2: int` — bottom edge of search ROI.
+  - `minimap_pin_match_threshold: float` — correlation floor for pin_visible=True. Starting value: 0.7.
+  - `minimap_pin_detector_cadence: int` — run detector every N frames. Starting value: 1 (every frame; UI element is cheap to detect and freshness matters).
+- **Starting ROI values (Phase 4a.1 baseline, from real minimap measurement):**
+  - `minimap_pin_search_roi_x1: 1590`
+  - `minimap_pin_search_roi_y1: 41`
+  - `minimap_pin_search_roi_x2: 1922`
+  - `minimap_pin_search_roi_y2: 271`
+- **Do-NOT guardrails:** no literals for ROI or threshold; no OpenCV drawing; do not consume from GameState (produces state, doesn't consume); do not modify the frame in place.
+- **Complexity:** L. Straightforward template match with configurable ROI and threshold.
+- **Acceptance:** offline diagnostic (`scripts/diag_minimap_pin_tuner.py`) runs the detector across a recorded run and reports per-frame `pin_visible` and max correlation. Manual review confirms the detector correctly identifies pin-visible vs pin-absent frames throughout a Phase 4a-style navigation to a pinned destination.
+
 ---
 
 ## 6. Game State Layer
@@ -244,11 +266,12 @@ Schemas are specified as key tables. All files are YAML. All keys snake_case. Th
 - **Origin:** Redesigned from game_bot's NavigationManager (threaded → synchronous; minimap planning → arrow steering).
 - **Consumes:** `FrameProcessor` ABC; `GameStateUpdater`; `StateDiff`; command registry payloads; `FrameHistory`; `capture.latency_frames` (injected at construction — the processor never sees a literal).
 - **Runtime config (`configs/navigation.yaml`, layered per season via load_layered_config):**
-  - `arrival_confirm_ticks: int` — sustained `nav_guide_lost` ticks required for ARRIVED (start at 2 × latency_frames).
+  - `arrival_confirm_ticks: int` — sustained `both_lost` ticks required for ARRIVED under compound-signal arrival (see ADR-015). Starting value: 24 (400 ms). Previously 120 under nav_arrow-only heuristic; dropped because compound-signal false-positive risk is much lower.
   - `burst_duration_ms: int` — length of each steering move_duration burst (F-CTL-2).
   - `character_anchor_x: int` — pixel column of the character's on-screen render position at the configured capture resolution.
   - `character_anchor_y: int` — pixel row of the character's on-screen render position at the configured capture resolution.
   - `emission_interval_ms: int` — how often a new steering burst is emitted (F-CTL-2 continuous emission per ADR-014). Must be less than `burst_duration_ms` so bursts overlap and firmware never self-releases during normal operation. Starting value: 200.
+  - `nav_arrow_only_arrival_backstop_ticks: int` — safety-net timeout: if nav_arrows have been lost this long, fire arrival regardless of pin state (protects against pin detector failure). Starting value: 300 (5 seconds at 60fps). Per ADR-015.
   - `nav_arrow_min_confidence: float` — floor applied on top of the detector's own threshold; defense against the known nav_arrow false-positive shelf (QUESTIONS.md, pending retrain). Detections below the floor are treated as absent for steering purposes.
   - `search_grace_ticks: int` — SEARCHING hold before terminal `guide_lost`.
   - `stale_direction_tolerance_ticks: int` — number of ticks the processor will continue emitting bursts using the last known good direction when detection is stale (F-CTL-2 / ADR-014). Beyond this tolerance, emission is skipped and the firmware self-releases the stick. Starting value: 3.
@@ -262,7 +285,7 @@ Schemas are specified as key tables. All files are YAML. All keys snake_case. Th
   - `SEARCHING` — nav arrows stale/absent outside the pre-effect window and *without* recent-movement context: hold position for `search_grace_ticks` (config). Guide reappears → `STEERING`; still lost after the grace period → terminal status `guide_lost`. (No scan maneuver: the camera is fixed, so waiting is the only honest search; the recent-movement case belongs to the arrival condition below.)
   - `STUCK_RECOVERY` — delegated to F-NAV-3's ladder; returns to `STEERING` on success.
   - `ARRIVED` — terminal; emits nothing; sets a done flag the entry script polls (mirroring `interpreter.status` in the diablo_bot scripts).
-- **Arrival condition (spec):** `nav_guide_lost` sustained for `arrival_confirm_ticks` (config; start at 2× latency_frames) while `character_moving` was True in the preceding window — i.e., the guide vanished because we got there, not because detection flickered. Distinguished from `SEARCHING`'s lost-guide case by recent-movement context.
+- **Arrival condition (spec):** `nav_guide_lost` AND `pin_lost` sustained simultaneously for `arrival_confirm_ticks` (config; starting value 24 = 400 ms under compound-signal design). Distinguished from `SEARCHING`'s lost-guide case by recent-movement context. See ADR-015 for compound-signal rationale and Interpretation A timing model. Backstop: if `nav_arrows` alone have been lost for `nav_arrow_only_arrival_backstop_ticks` (config; starting value 300 = 5 seconds), arrival fires regardless of pin state to prevent hangs if the pin detector itself fails.
 - **Do-NOT guardrails:** no threads; no sleeps (BotLoop owns time); no direct UDP; no OpenCV drawing; no literals for latency/durations/thresholds (all injected config); never query detectors directly (GameState only).
 - **Complexity:** **H** — this is the phase where Copilot most needs the spec pasted whole.
 - **Acceptance (live):** with a marker pinned ≥ 30 seconds of travel away across at least one obstacle: the character reaches the marker; ≥ 1 stuck-recovery is induced (walk it into a wall corner mid-run) and survived; the processor reaches `ARRIVED` and the script exits cleanly. Three consecutive successful runs.

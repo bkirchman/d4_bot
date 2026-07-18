@@ -395,6 +395,38 @@ Emission also tolerates brief detector dropouts. Under overlapping-burst emissio
 - **No stale-direction tolerance (strict skip-on-stale).** Rejected: 1-3 frame detector dropouts happen routinely with the current YOLOv5 checkpoint (QUESTIONS.md banked issue). Under strict skip, every hiccup produces a firmware self-release and the stop/start animation this ADR was supposed to eliminate. Tolerance of a few ticks preserves motion continuity across brief dropouts.
 
 **Correctness argument (why this preserves latency discipline).** The F-NAV-2 concern was: a burst emitted while the previous burst's effect wasn't yet visible would be steering on stale data. Under overlap, this is preserved by keying direction freshness to the last *significant direction change*, not the last emission. Small continuous corrections during steady walking are cheap and correct — the direction is stable, all detections are equally fresh relative to intent. Only when direction meaningfully changes (obstacle, guide reroute) do we reset the freshness clock, and at that point the pre-effect window kicks in and prevents further significant changes until the last one's effect is visible. Verdicts (arrival, stuck) always gate on the pre-effect window relative to the last significant direction change.
+
+### ADR-015 — Minimap-pin detection as second arrival signal; compound-signal arrival heuristic
+
+**Date:** 2026-07-18
+**Status:** Accepted. Amends ADR-014's arrival tuning. Opens Phase 4a.1.
+
+**Context.** Phase 4a shipped with `arrival_confirm_ticks: 120` (2 seconds) to survive nav_arrow YOLOv5 detector dropouts on light-colored backgrounds and VFX-heavy moments. That tuning is a tax on real-arrival response time and is vulnerable to detector failures longer than 2 seconds. A prolonged detector dropout mid-transit can still trigger spurious arrival because "recent movement" is always true under overlapping-burst emission (ADR-014).
+
+The minimap displays a destination pin as a small grayish/metallic icon that renders identically whether the destination is at the border of the minimap (far state) or inside the minimap interior (near state). The pin persists on the minimap until the character crosses D4's internal proximity threshold for the destination, at which point the pin disappears entirely. This provides a second, independent arrival signal - one that operates on a fixed UI region rather than the busy gameplay area, and is therefore uncorrelated with the nav_arrow detector's failure modes.
+
+**Decision.** Add a minimap-pin detector using OpenCV template matching on a fixed search ROI. Add `pin_visible: bool` and `pin_position: tuple[int, int] | None` fields to GameState. Amend NavigationProcessor's arrival heuristic to require BOTH signals lost - nav_arrows empty AND pin_visible false - sustained for `arrival_confirm_ticks`.
+
+Because the compound signal is much stronger than either alone (probability of both detectors simultaneously false-negative-ing is far lower than either individually), `arrival_confirm_ticks` drops from 120 back to 24 (400 ms). This restores fast real-arrival response while eliminating spurious mid-transit arrivals from single-detector hiccups.
+
+**Timing model (Interpretation A):** track a single `both_lost_ticks` counter that increments only when both signals are lost on the current tick and resets to zero if either signal is present. Arrival fires when `both_lost_ticks >= arrival_confirm_ticks`. This explicitly requires the two signals to be lost *together* for the duration, not merely both lost at some point in the recent past. Interpretation B (independent counters, arrival fires when both counters exceed threshold) was rejected because it accepts out-of-phase drops as evidence of arrival, which is exactly the failure mode compound-signal design should reject.
+
+**Detector approach.** Classical CV via `cv2.matchTemplate`. The pin template is a single reference image cropped from a real minimap screenshot at native 1920x1080 resolution, stored at `configs/minimap_pin_template.png`. The detector runs template matching over a search ROI that extends slightly beyond the minimap's rendered bounds (pins can render partially outside the minimap frame - 20 px on left/right, 10 px on top/bottom). Match confidence above a configurable threshold reports `pin_visible=True` and returns the best-match location. This choice over training a YOLO model: the minimap is a fixed UI element with consistent rendering, template matching is essentially free at inference time, and no training data is required.
+
+**Consequences.**
+- New F-DET-3 spec entry for the pin detector.
+- New GameState fields for pin state.
+- F-NAV-1 arrival condition amended.
+- `arrival_confirm_ticks` tuned from 120 back to 24 in `navigation.yaml`.
+- Stale-tolerance and other ADR-014 emission behavior unchanged - pin detection is orthogonal to how movement is emitted.
+- If the pin detector fails (returns pin_visible=false when it shouldn't), navigation runs will hang past the point of actual arrival because the compound signal never fires. Mitigation: a backstop timeout on `nav_arrow_lost_ticks` alone. If nav_arrows have been lost for `nav_arrow_only_arrival_backstop_ticks` (config, starting value 300 = 5 seconds), fire arrival regardless of pin state. This is a safety net, not the primary path - under normal operation the compound signal fires within `arrival_confirm_ticks`.
+- Phase 4b unblocked: with reliable arrival, Phase 4b's stuck detection can key off "character not moving" without arrival interfering.
+
+**Alternatives considered.**
+- **Pin-only arrival.** Replaces nav_arrow-based arrival entirely with pin-based arrival. Simpler ADR, single-signal. Rejected because it puts the entire arrival correctness on one detector; if the pin detector fails, arrival never fires and runs hang indefinitely.
+- **Nav_arrow-only arrival with detector retrain.** Fix the underlying reliability of the nav_arrow detector by retraining on more diverse backgrounds. Rejected as the Phase 4a.1 solution because retraining is multi-session work with data-gathering overhead. Retrain remains banked as long-term correct fix in QUESTIONS.md; compound signal makes retrain less urgent.
+- **Interpretation B (independent lost counters).** As described above; rejected on correctness grounds.
+- **HSV-mask-based pin detection.** Rejected because the pin's grayish/metallic color has no distinctive hue that separates it from environmental content on the minimap. Template matching on the icon's shape is more robust.
 ---
 
 *End of ARCHITECTURE.md. Next document: FEATURE_SPECS.md.*

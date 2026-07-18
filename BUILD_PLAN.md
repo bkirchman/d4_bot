@@ -133,25 +133,34 @@ Capture + UDP are already proven on this rig via diablo_bot, so this phase is wi
 - Latency discipline spot-check: run with `--record`; the verify script inspects the action log + frames to confirm no steering action was emitted within `latency_frames` + burst-duration ticks of the previous action. **[replay-checkable from the recording]**
 - **Pre-run gates:** `configs/navigation.yaml` populated with concrete tuned values (no factory defaults); `move_duration` in `buttons.yaml` verified via `diag_udp_echo.py` — the character visibly moves in the intended direction for the intended duration.
 
-### Phase 4a.1 — Reliability pass: minimap-pin detection and arrival tightening
+### Phase 4a.1 — Reliability pass: minimap-pin detection and compound-signal arrival
 
-Scope: add classical-CV detector for the minimap pin, wire `pin_visible` / `pin_position` / `pin_on_border` into GameState, amend NavigationProcessor's arrival condition to use pin position as the primary arrival signal. Replaces the current tuning-based arrival (`arrival_confirm_ticks: 120`, `stale_direction_tolerance_ticks: 24`) with a context-aware version that does not rely on nav_arrow reliability for arrival correctness.
+Scope: implement a minimap-pin detector using OpenCV template matching. Wire pin_visible / pin_position into GameState. Amend NavigationProcessor's arrival heuristic to require both nav_arrows AND pin lost per Interpretation A (single both_lost counter). Tune arrival_confirm_ticks from 120 back to 24. See ADR-015.
 
-Rationale: Phase 4a shipped with wide arrival timeouts to survive YOLOv5 detector dropouts. That tuning is a tax on real-arrival response time (2-second delay) and is vulnerable to detector failures longer than 2 seconds. Minimap-pin position is a stronger signal — it exists independent of the nav_arrow detector's reliability and encodes destination proximity directly. See QUESTIONS.md's "Minimap-pin cross-check as arrival disambiguation (promoted)" item.
+Rationale: Phase 4a's wide arrival timeout (2 seconds) is a tax on real-arrival response and vulnerable to detector failures longer than 2 seconds. Compound signal eliminates the tax while being strictly safer against single-detector hiccups.
 
-Blocks Phase 4b. Reasoning: Phase 4b's stuck detection needs to reason about "character not moving." Under current arrival tuning, prolonged detector dropouts can look like arrival, complicating stuck-vs-arrival disambiguation. Fixing arrival correctness first makes stuck detection straightforward to build.
+Files expected to change:
+- `configs/minimap_pin_template.png` — new binary asset, single reference image cropped from a real minimap screenshot.
+- `configs/navigation.yaml` — new pin-detector config keys, new backstop timeout key, arrival_confirm_ticks retuned.
+- `src/d4_bot/detectors/minimap_pin.py` — new detector.
+- `src/d4_bot/state.py` — pin_visible, pin_position fields added to GameState.
+- `src/d4_bot/processors/navigation.py` — arrival heuristic amended.
+- `scripts/diag_minimap_pin_tuner.py` — new diagnostic script.
+- `scripts/run_nav.py` — verbose output extended for pin state.
+- `scripts/verify_phase_4a.py` — audit updated if it references arrival timing.
+- `FEATURE_SPECS.md` — F-DET-3 added, F-NAV-1 amended (both handled in ADR-015's docs commit).
+- `ARCHITECTURE.md` — ADR-015 added.
 
-Files expected to change (subject to Phase 4a.1 planning):
-- `src/d4_bot/detectors/` (new pin detector)
-- `src/d4_bot/state.py` (new GameState fields)
-- `src/d4_bot/processors/navigation.py` (arrival condition amendment)
-- `configs/navigation.yaml` (new pin-related config values, possibly tuning `arrival_confirm_ticks` back down)
-- `FEATURE_SPECS.md` (F-NAV-1 arrival condition amendment)
-- `ARCHITECTURE.md` §12 (new ADR documenting the pin-based arrival design)
+Implementation sequence (three commits):
+1. Docs commit: this ADR + F-DET-3 + F-NAV-1 amendments. (This block.)
+2. Detector + GameState wiring + tuner diagnostic. Navigation arrival unchanged from Phase 4a. Purpose: prove detector reliability in isolation before it affects live runs.
+3. Arrival heuristic amendment consuming the new signal. Tune arrival_confirm_ticks. Update verbose output.
 
-Copilot prompt: TBD, drafted at start of phase.
-
-Acceptance: three consecutive `--verbose` runs where character reaches a pinned destination and terminates `arrived` with `arrival_confirm_ticks` back at a value substantially lower than 120. One run where pin is cleared mid-transit, expect arrival to fire promptly (pin gone is a legitimate arrival signal). One run where nav_arrow detector is deliberately degraded (e.g., by setting min_confidence very high) but pin detection remains healthy — expect character to still reach destination and arrive correctly.
+Acceptance:
+- Diagnostic run: `diag_minimap_pin_tuner.py` on a recorded navigation run shows correct pin_visible transitions from arrival start (pin at border) through mid-transit (pin visible in interior) through arrival (pin disappears).
+- Live: three consecutive `--verbose` runs where character reaches a pinned destination and terminates `arrived` with arrival_confirm_ticks set to 24.
+- Live: one run where nav_arrow detector is deliberately degraded (e.g., min_confidence set to 0.9) but pin detector remains healthy - the character still reaches destination and terminates arrived via backstop or via pin becoming lost simultaneously with the degraded arrow.
+- Live: one run started with no pin (no destination set). Expected: `terminal=guide_lost` after search_grace_ticks, not false arrived.
 
 ### Phase 4b — Stuck detection, recovery, the full milestone
 
