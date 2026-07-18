@@ -15,6 +15,7 @@ if str(SRC_ROOT) not in sys.path:
 from framework.contrib.ml import Detection
 from framework.interfaces import StampedFrame
 
+from d4_bot.detectors.minimap_pin import MinimapPinResult
 from d4_bot.state import GameState, GameStateUpdater, StateDiff, diff
 
 
@@ -66,11 +67,26 @@ class _SpyDetector:
         return False
 
 
+class _FakePinDetector:
+    def __init__(self, results: list[MinimapPinResult]) -> None:
+        self._results = list(results)
+        self._index = 0
+
+    def update(self, frame: StampedFrame) -> MinimapPinResult:
+        if self._index >= len(self._results):
+            return self._results[-1]
+        result = self._results[self._index]
+        self._index += 1
+        return result
+
+
 def _state(
     *,
     frame_id: int = 10,
     character_moving: bool = False,
     nav: bool = False,
+    pin_visible: bool = False,
+    pin_position: tuple[int, int] | None = None,
     enemy_present: bool = False,
 ) -> GameState:
     nav_arrows = []
@@ -93,6 +109,8 @@ def _state(
         character_moving_frame_id=frame_id,
         nav_arrows=nav_arrows,
         nav_arrows_frame_id=nav_frame_id,
+        pin_visible=pin_visible,
+        pin_position=pin_position,
         enemy_present=enemy_present,
     )
 
@@ -115,6 +133,8 @@ def test_gamestate_defaults_and_immutability() -> None:
 
     assert state.nav_arrows == []
     assert state.nav_arrows_frame_id is None
+    assert state.pin_visible is False
+    assert state.pin_position is None
     assert state.enemy_present is False
     assert state.screen_mode == "hud"
 
@@ -188,7 +208,14 @@ def test_diff_table_driven_edges() -> None:
 def test_updater_assembles_snapshot_and_tracks_nav_origin() -> None:
     motion = _FakeMotionDetector([False, True, True])
     nav = _FakeNavDetector(cadence=2)
-    updater = GameStateUpdater({"minimap_motion": motion, "nav_arrow": nav})
+    pin = _FakePinDetector(
+        [
+            MinimapPinResult(pin_visible=False, pin_position=None, confidence=0.0),
+            MinimapPinResult(pin_visible=True, pin_position=(1750, 105), confidence=0.9),
+            MinimapPinResult(pin_visible=True, pin_position=(1750, 105), confidence=0.9),
+        ]
+    )
+    updater = GameStateUpdater({"minimap_motion": motion, "nav_arrow": nav, "minimap_pin": pin})
 
     state0 = updater.update(_frame(1))
     state1 = updater.update(_frame(2))
@@ -198,17 +225,23 @@ def test_updater_assembles_snapshot_and_tracks_nav_origin() -> None:
     assert state0.character_moving_frame_id == 1
     assert state0.nav_arrows == []
     assert state0.nav_arrows_frame_id is None
+    assert state0.pin_visible is False
+    assert state0.pin_position is None
 
     assert state1.character_moving is True
     assert state1.character_moving_frame_id == 2
     assert len(state1.nav_arrows) == 1
     assert state1.nav_arrows[0].frame_id == 2
     assert state1.nav_arrows_frame_id == 2
+    assert state1.pin_visible is True
+    assert state1.pin_position == (1750, 105)
 
     # Frame 3 is off-cadence; nav detections remain cached from frame 2.
     assert len(state2.nav_arrows) == 1
     assert state2.nav_arrows[0].frame_id == 2
     assert state2.nav_arrows_frame_id == 2
+    assert state2.pin_visible is True
+    assert state2.pin_position == (1750, 105)
 
 
 def test_updater_feeds_all_detectors_it_was_given() -> None:

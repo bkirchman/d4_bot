@@ -3,6 +3,13 @@
   stick_magnitude: 100
   character_anchor_x: 960
   character_anchor_y: 450
+  minimap_pin_template_path: minimap_pin_template.png
+  minimap_pin_search_roi_x1: 1590
+  minimap_pin_search_roi_y1: 41
+  minimap_pin_search_roi_x2: 1922
+  minimap_pin_search_roi_y2: 271
+  minimap_pin_match_threshold: 0.7
+  minimap_pin_detector_cadence: 1
   emission_interval_ms: 200
   burst_duration_ms: 400
   significant_direction_change_degrees: 15.0

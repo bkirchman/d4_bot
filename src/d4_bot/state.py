@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from d4_bot.detectors.minimap_pin import MinimapPinResult
 from framework.contrib.ml import Detection
 from framework.interfaces import StampedFrame
 
@@ -15,6 +16,8 @@ class GameState:
     character_moving_frame_id: int
     nav_arrows: list[Detection] = field(default_factory=list)
     nav_arrows_frame_id: int | None = None
+    pin_visible: bool = False
+    pin_position: tuple[int, int] | None = None
     enemy_present: bool = False
     screen_mode: str = "hud"
 
@@ -81,6 +84,14 @@ class GameStateUpdater:
         if nav_arrows_frame_id is None and nav_arrows:
             nav_arrows_frame_id = nav_arrows[0].frame_id
 
+        pin_result = detector_results.get("minimap_pin")
+        if isinstance(pin_result, MinimapPinResult):
+            pin_visible = pin_result.pin_visible
+            pin_position = pin_result.pin_position
+        else:
+            pin_visible = False
+            pin_position = None
+
         return GameState(
             frame_id=frame.frame_id,
             timestamp=frame.timestamp,
@@ -88,4 +99,6 @@ class GameStateUpdater:
             character_moving_frame_id=frame.frame_id,
             nav_arrows=nav_arrows,
             nav_arrows_frame_id=nav_arrows_frame_id,
+            pin_visible=pin_visible,
+            pin_position=pin_position,
         )
