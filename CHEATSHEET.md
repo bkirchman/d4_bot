@@ -97,3 +97,4 @@ policy to CHEATSHEET". Docs-only, no code changes.
 - Code and docs disagreeing = a bug, always. Fix the code, or amend the doc with a new dated ADR in ARCHITECTURE §12. Never leave both standing.
 - Spec drift found mid-build gets corrected in FEATURE_SPECS.md (BUILD_PLAN Definition of Done #3), so every future prompt inherits the correction.
 - Questions you'd have asked your old collaborator go in `QUESTIONS.md` at the repo root. The next capable LLM you sit down with starts by reading the six docs plus that file — the documents are the collaborator of record.
+- Canonical doc set: ARCHITECTURE.md, FEATURE_SPECS.md, BUILD_PLAN.md, ROADMAP.md, COPILOT_PROMPTS.md, TROUBLESHOOTING.md, CHEATSHEET.md, and QUESTIONS.md. ROADMAP.md is the eighth doc: milestone-level roadmap across framework and game bots; feeds BUILD_PLAN.

@@ -1,0 +1,92 @@
+# ROADMAP.md — cross-project milestone roadmap
+
+**Status:** Living document. Eighth canonical doc (see ADR entry recording its creation).
+**Scope:** Milestone-level planning across `bot_framework`, `d4_bot`, and future game bots (`halo_bot`). Lives in d4_bot for doc-set cohesion despite cross-repo scope — a deliberate tradeoff, recorded in the ADR.
+**Relationship to BUILD_PLAN.md:** This doc governs *which milestones exist and in what order*. BUILD_PLAN.md governs *execution detail of active d4_bot phases*. Within an active phase, BUILD_PLAN.md wins. ARCHITECTURE.md rule zero is unchanged.
+**Rule:** When a milestone here activates, it gets a planning pass that produces BUILD_PLAN.md phases (or the game-repo equivalent) before any implementation prompt is written.
+
+---
+
+## 1. Where we are
+
+Phase 4a (steering-only navigation) is mid-stream. Two open items precede everything in this roadmap: the black-frame capture issue (competing DirectShow consumer) and the un-executed overlapping-burst implementation prompt (ADR-014). Nothing below starts until the Phase 4 milestone completes per BUILD_PLAN.md.
+
+---
+
+## 2. Parity inventory — previous-generation (game_bot) features
+
+Source of record: game_bot files present in project knowledge (`core/system_initializer.py`, `config/icon_sets/hud_icons.json`, `config/icon_sets/map_icons.json` references) plus the d4_bot doc set's existing heritage notes. game_bot remains feature-intent reference only; code is never ported (ARCHITECTURE §1.1).
+
+### P-1 — Command interface / operator launcher
+- **What game_bot had:** SequenceRegistry loading `commands.json` + `basic_commands.json`; operator selected and ran static commands (navigation, scanning, fighting) through a command interface.
+- **Already absorbed:** press/release pairs → firmware v2.1 duration packets (the click is the packet); multi-step sequences → YAML content loops (FEATURE_SPECS F-CFG-3 heritage note).
+- **Remaining gap:** the operator-facing surface. Current answer is one entry script per activity (`run_nav.py` pattern).
+- **Parity scope (Proposed — pending ruling): THIN.** A single launcher script: list available activities, select one, run it, show live status, abort cleanly. Not a rebuilt console, no interactive command palette. Per-activity scripts remain the substrate; the launcher only fronts them.
+
+### P-2 — Combat: scanning and fighting
+- **What game_bot had:** PowerHUDDetector (HUD template detection of powers/cooldowns), AttackManager (loadout-specific power→button maps), EnemyTargeted / A_Confirm icon detection, operator-triggered scan and fight commands.
+- **Current status:** already the deferred Phase 5 combat foundation (BUILD_PLAN Phase 5+; FEATURE_SPECS §8): enemy detection → `GameState.enemy_present` → AttackProcessor on `enemy_appeared` edges; loadout YAML per season.
+- **Parity scope (Proposed — pending ruling): FULL** — this is the already-planned Phase 5, now explicitly tagged as the parity vehicle for game_bot's scan/fight features.
+- **Open:** what the old "scanning" behavior physically did (see Open Decisions OD-1). Determines whether scan is part of AttackProcessor or a separate search behavior.
+- **Reusable data:** EnemyTargeted, A_Confirm, power/HUD icon templates; power-mapping and loadout button-map structures as YAML redesign inputs.
+
+### P-3 — Inventory: slot-state reading and grid navigation
+- **What game_bot had:** detection of inventory slot states (empty / GA / favorite / junk / selected) via icon templates; cursor navigation of the inventory grid.
+- **Current status:** NOT covered anywhere in the existing Phase 5+ deferred list. This roadmap adds it.
+- **Parity scope (Proposed — pending ruling): READ-FIRST.** Milestone delivers: (a) slot-state detection across the grid via template detectors, (b) a grid model tracking cursor position, (c) cursor navigation to a chosen slot via d-pad hops with visual position confirmation. Item *actions* (junk-marking, salvaging, moving items) are explicitly out of scope for the parity milestone and become future features (§4).
+- **Framework-boundary note:** "navigate a cursor through a menu grid using discrete inputs, confirming position visually" is a game-agnostic mechanism candidate for `bot_framework/contrib/` — grid dimensions, hop commands, and slot icons stay d4_bot data. Ruling deferred to the milestone's planning pass (Open Decisions OD-3).
+- **Reusable data:** EmptySlot, GaSlot, FavSlot, JunkSlot, InventorySelected, CharacterInterface icon templates from `hud_icons.json`.
+
+### P-4 — Map interaction: two-stage cursor navigation
+- **What game_bot had:** timed cursor-movement scripts to bring the map cursor near a region/town, then CV icon detection (MapIconPlanner + `map_icons.json`) for fine targeting and movement to the detected icon.
+- **Current status:** partially adjacent to deferred items "minimap position tracking" and "town/menuing scripted loops," but the two-stage coarse-then-fine cursor pattern is specified nowhere. This roadmap makes it a first-class milestone.
+- **Parity scope (Proposed — pending ruling): FULL** — the two-stage pattern, ending with a pin placed (or waypoint selected) at a detected icon.
+- **Why it matters beyond parity:** map interaction is the missing dependency for the recovery ladder's deferred re-pin fallback (FEATURE_SPECS F-NAV-3 rung-4 note) and the substrate for town/menuing loops.
+- **Reopened question:** map-cursor work is exactly what the axis-calibration CSVs existed for; F-CTL-2 excluded them as map-cursor-only. The milestone's planning pass must rule on calibration approach (Open Decisions OD-4).
+- **Reusable data:** `map_icons.json` icon set; Pin and Map HUD icons.
+
+---
+
+## 3. Milestone sequencing (post-Phase 4)
+
+Default order, dependency-driven:
+
+| # | Milestone | Depends on | Repo(s) touched |
+|---|---|---|---|
+| M1 | Combat foundation (P-2) | Phase 4 complete | d4_bot; possibly contrib detectors |
+| M2 | Processor + YAML-loop composition (ADR-006 gap) | M1 useful but not strictly required | bot_framework |
+| M3 | Map interaction (P-4) | M2 (composition makes map flows expressible) | d4_bot; calibration ruling may touch framework |
+| M4 | Inventory read-first (P-3) | none hard; benefits from M2 | d4_bot; possible contrib grid-nav mechanism |
+| M5 | Operator launcher (P-1) | ≥2 activities existing to launch | d4_bot |
+| M6 | Fishing absorption (diablo_bot → d4_bot YAML activity; archive diablo_bot) | M2 | d4_bot |
+| M7 | Halo migration (per HALO_MIGRATION.md: parity-first, inference-only, frozen models) | stable framework post-M2; framework tag | bot_framework + new halo_bot |
+
+**Sequencing pressure note (unresolved, OD-2):** M4 (inventory) is the most self-contained and demo-able milestone and can jump the queue for video-content cadence without breaking dependencies. The table above is the dependency-clean default; content cadence may reorder M3/M4/M5.
+
+Self-restarting run wrapper and minimap position tracking remain deferred exactly as BUILD_PLAN Phase 5+ lists them; they attach to whichever milestone first demands them.
+
+---
+
+## 4. Future features beyond parity
+
+Scaffold only — populated in a dedicated planning session after parity scopes are ratified. Known candidates parked here so they aren't lost: inventory item actions (junk-marking, salvage runs), route-planned farming via minimap position tracking, multi-activity session orchestration, self-restarting wrapper as standing infrastructure.
+
+---
+
+## 5. Halo migration placement
+
+HALO_MIGRATION.md remains the banked spec (parity-first, inference-only milestone using frozen gen3 models; synchronous BotLoop replacing the detection thread; FrameHistory replacing the camera-velocity ring buffer). It slots as M7: after the framework has absorbed the composition mechanism (M2) and received a version tag, so Halo consumes a stable substrate. YOLOv5→v8 retraining debt (QUESTIONS.md items 6–7) becomes unavoidable at this milestone if not resolved earlier.
+
+---
+
+## 6. Open decisions
+
+- **OD-1 — Scanning semantics.** What did game_bot's scan behavior physically do (movement sweep? target cycling? something else)? D4's camera is fixed, so the answer shapes whether scan lives inside AttackProcessor or as a separate search behavior. Needs Brian's recollection or a game_bot code read.
+- **OD-2 — Ordering pressure.** Dependency cleanliness (table order in §3) vs. video-content cadence (inventory early). Unresolved; revisit when Phase 4 nears completion.
+- **OD-3 — Grid-navigation framework promotion.** Does menu-grid cursor navigation enter `bot_framework/contrib/` at M4, or stay in d4_bot until Halo proves the second consumer? Placement test from ARCHITECTURE applies.
+- **OD-4 — Map-cursor movement approach.** Revive axis-calibration CSV data (as redesigned YAML), re-measure fresh, or attempt closed-loop cursor steering via icon detection feedback? Decided in M3's planning pass.
+- **OD-5 — Parity scope ratification.** The four Proposed scopes in §2 (thin / full / read-first / full) await explicit ruling; treat as accepted defaults if unchallenged by the time each milestone's planning pass begins.
+
+---
+
+*End of ROADMAP.md. Milestones activate via planning passes that produce BUILD_PLAN.md phases; this doc never contains implementation detail.*

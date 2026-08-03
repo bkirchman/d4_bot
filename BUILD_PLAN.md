@@ -183,6 +183,8 @@ Acceptance:
 
 ## Phase 5+ — Deferred (listed only; each needs its own planning pass)
 
+Milestone-level ordering and parity scope for these items now governed by ROADMAP.md; this table remains the d4_bot execution ledger.
+
 | # | Item | One-liner |
 |---|---|---|
 | 5 | Combat foundation | Enemy detection → `enemy_present` → AttackProcessor on `enemy_appeared` edges; loadout YAML per season |

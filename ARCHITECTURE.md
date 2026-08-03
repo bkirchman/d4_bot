@@ -2,7 +2,7 @@
 
 **Status:** Living document. The north star for all design decisions in this repo.
 **Audience:** Future-me and GitHub Copilot (via pasted sections and `copilot-instructions.md`).
-**Companion documents:** FEATURE_SPECS.md (what to build), BUILD_PLAN.md (in what order), COPILOT_PROMPTS.md (how to prompt it), TROUBLESHOOTING.md (how to recover).
+**Companion documents:** FEATURE_SPECS.md (what to build), BUILD_PLAN.md (in what order), ROADMAP.md (cross-project milestone ordering), COPILOT_PROMPTS.md (how to prompt it), TROUBLESHOOTING.md (how to recover).
 **Rule zero:** When generated code contradicts this document, the code is wrong.
 
 ---
@@ -427,6 +427,19 @@ Because the compound signal is much stronger than either alone (probability of b
 - **Nav_arrow-only arrival with detector retrain.** Fix the underlying reliability of the nav_arrow detector by retraining on more diverse backgrounds. Rejected as the Phase 4a.1 solution because retraining is multi-session work with data-gathering overhead. Retrain remains banked as long-term correct fix in QUESTIONS.md; compound signal makes retrain less urgent.
 - **Interpretation B (independent lost counters).** As described above; rejected on correctness grounds.
 - **HSV-mask-based pin detection.** Rejected because the pin's grayish/metallic color has no distinctive hue that separates it from environmental content on the minimap. Template matching on the icon's shape is more robust.
+---
+
+### ADR-016 — ROADMAP.md added as eighth canonical doc
+
+**Date:** 2026-07-19
+**Status:** Accepted.
+
+**Context.** Previous-generation (game_bot) parity features — operator command interface, combat scan/fight, inventory slot reading and grid navigation, two-stage map cursor navigation — needed a documented home; inventory and the map cursor pattern were covered nowhere in the existing deferred list. Roadmap drafted during a model-transition documentation pass.
+
+**Decision.** A cross-project milestone roadmap (ROADMAP.md) is added to the canonical doc set. It governs milestone existence and ordering across bot_framework, d4_bot, and future game bots; BUILD_PLAN.md retains authority over execution detail of active d4_bot phases. The file lives in d4_bot rather than bot_framework, trading strict scope alignment for doc-set cohesion (all eight canonical docs in one repo).
+
+**Consequences.** New milestones require a planning pass producing BUILD_PLAN phases before implementation. Open decisions OD-1 through OD-5 recorded in ROADMAP.md §6.
+
 ---
 
 *End of ARCHITECTURE.md. Next document: FEATURE_SPECS.md.*
