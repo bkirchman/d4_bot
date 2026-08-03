@@ -451,6 +451,17 @@ Because the compound signal is much stronger than either alone (probability of b
 
 **Consequences.** M2 hardens into a dependency for combat (stick contention between scan and steering). OD-6 and OD-7 added. Seasonal whisper churn is absorbed as YAML data edits by construction.
 
+### ADR-018 — M1 combat scoped defensive-only with gated-rotation architecture
+
+**Date:** 2026-08-03
+**Status:** Accepted.
+
+**Context.** Fable-model transition pass. The gate architecture resolves a genuine disagreement — optimistic blind pressing vs. the operator's instinct that pressing is not forgiving (resource whiffs, contextual-interact hijacking, movement-skill repositioning) — by converting it into a per-skill empirical question with a YAML-only escape hatch.
+
+**Decision.** M1 is defensive combat (engage-kill-sweep-report), standalone-testable without navigation; area-clear belongs to FF-1. Enemy detection reads the targeting UI health bar (OD-1 strategy). Attack rotation is a timed YAML sequence with a per-skill optional gate field (none | resource | cooldown); v1 ships all-none per operator ruling that the target build is simple and not resource-starved. Survival scope: threshold potion drinking and death detection; no flee logic. Banked in COMBAT_MILESTONE.md pending M1 activation.
+
+**Consequences.** Stick-contention work moves wholly to M2, which gains "nav + combat concurrently" as its demo. PowerHUDDetector intent is not carried into v1. The M1 loadout must avoid movement skills in rotation.
+
 ---
 
 *End of ARCHITECTURE.md. Next document: FEATURE_SPECS.md.*

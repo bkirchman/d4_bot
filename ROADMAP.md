@@ -63,7 +63,7 @@ Default order, dependency-driven:
 
 **Sequencing pressure note (unresolved, OD-2):** M4 (inventory) is the most self-contained and demo-able milestone and can jump the queue for video-content cadence without breaking dependencies. The table above is the dependency-clean default; content cadence may reorder M3/M4/M5.
 
-**M1 architecture note (from OD-1 resolution):** scan is a state inside the combat layer — short stick nudges rotate the character's targeting cone through directions, checking the enemy-health-bar ROI after each nudge. Each check must gate on capture latency: the ROI read is only valid latency_frames after the nudge's real-world completion (same frame_id discipline as F-NAV-2). Scan contends with navigation for the left stick, reinforcing M2 (processor composition) as a hard dependency for "pause steering, sweep, resume" flows.
+**M1 architecture note (from OD-1 resolution):** scan is a state inside the combat layer — short stick nudges rotate the character's targeting cone through directions, checking the enemy-health-bar ROI after each nudge. Each check must gate on capture latency: the ROI read is only valid latency_frames after the nudge's real-world completion (same frame_id discipline as F-NAV-2). Scan contends with navigation for the left stick, reinforcing M2 (processor composition) as a hard dependency for "pause steering, sweep, resume" flows. M1 pre-planning is banked in COMBAT_MILESTONE.md (scope ruling, state machine, gated-rotation architecture, survival scope, acceptance sketch).
 
 Self-restarting run wrapper and minimap position tracking remain deferred exactly as BUILD_PLAN Phase 5+ lists them; they attach to whichever milestone first demands them.
 
