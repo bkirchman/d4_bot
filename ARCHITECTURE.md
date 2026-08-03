@@ -440,6 +440,17 @@ Because the compound signal is much stronger than either alone (probability of b
 
 **Consequences.** New milestones require a planning pass producing BUILD_PLAN phases before implementation. Open decisions OD-1 through OD-5 recorded in ROADMAP.md §6.
 
+### ADR-017 — Whisper-farming architecture, scanning resolution, and grow-on-demand detection principle
+
+**Date:** 2026-08-03
+**Status:** Accepted.
+
+**Context.** Model-transition documentation pass. Operator ground-truthed the whisper archetype taxonomy and supplied the legacy scanning mechanics from game_bot experience.
+
+**Decision.** FF-1 (autonomous whisper farming) is adopted as the near-term North Star with a three-layer churn-firewall architecture (archetype executors in code, objective definitions in seasonal YAML, a selection layer that skips unexecutable whispers). OD-1 is resolved: enemy detection reads the game's targeting UI (health-bar appearance on facing acquisition) rather than visual monster detection; scan is a latency-gated facing-sweep state inside the combat layer. Detections are grow-on-demand per milestone planning pass, with screen-mode detection named as the one shared-infrastructure exception.
+
+**Consequences.** M2 hardens into a dependency for combat (stick contention between scan and steering). OD-6 and OD-7 added. Seasonal whisper churn is absorbed as YAML data edits by construction.
+
 ---
 
 *End of ARCHITECTURE.md. Next document: FEATURE_SPECS.md.*

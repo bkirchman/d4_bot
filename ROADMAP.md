@@ -27,7 +27,7 @@ Source of record: game_bot files present in project knowledge (`core/system_init
 - **What game_bot had:** PowerHUDDetector (HUD template detection of powers/cooldowns), AttackManager (loadout-specific power→button maps), EnemyTargeted / A_Confirm icon detection, operator-triggered scan and fight commands.
 - **Current status:** already the deferred Phase 5 combat foundation (BUILD_PLAN Phase 5+; FEATURE_SPECS §8): enemy detection → `GameState.enemy_present` → AttackProcessor on `enemy_appeared` edges; loadout YAML per season.
 - **Parity scope (Proposed — pending ruling): FULL** — this is the already-planned Phase 5, now explicitly tagged as the parity vehicle for game_bot's scan/fight features.
-- **Open:** what the old "scanning" behavior physically did (see Open Decisions OD-1). Determines whether scan is part of AttackProcessor or a separate search behavior.
+- **Resolved (see OD-1):** scanning = facing sweep. Enemy presence is detected via the game's own targeting UI — the enemy health bar appears on screen when the character's facing cone acquires a target. Detection is therefore template/ROI work on a stable HUD element (legacy EnemyTargeted icon is reference data), not visual monster detection; the operator's original judgment that no CV approach beats this signal is adopted as the M1 strategy.
 - **Reusable data:** EnemyTargeted, A_Confirm, power/HUD icon templates; power-mapping and loadout button-map structures as YAML redesign inputs.
 
 ### P-3 — Inventory: slot-state reading and grid navigation
@@ -63,13 +63,29 @@ Default order, dependency-driven:
 
 **Sequencing pressure note (unresolved, OD-2):** M4 (inventory) is the most self-contained and demo-able milestone and can jump the queue for video-content cadence without breaking dependencies. The table above is the dependency-clean default; content cadence may reorder M3/M4/M5.
 
+**M1 architecture note (from OD-1 resolution):** scan is a state inside the combat layer — short stick nudges rotate the character's targeting cone through directions, checking the enemy-health-bar ROI after each nudge. Each check must gate on capture latency: the ROI read is only valid latency_frames after the nudge's real-world completion (same frame_id discipline as F-NAV-2). Scan contends with navigation for the left stick, reinforcing M2 (processor composition) as a hard dependency for "pause steering, sweep, resume" flows.
+
 Self-restarting run wrapper and minimap position tracking remain deferred exactly as BUILD_PLAN Phase 5+ lists them; they attach to whichever milestone first demands them.
 
 ---
 
 ## 4. Future features beyond parity
 
-Scaffold only — populated in a dedicated planning session after parity scopes are ratified. Known candidates parked here so they aren't lost: inventory item actions (junk-marking, salvage runs), route-planned farming via minimap position tracking, multi-activity session orchestration, self-restarting wrapper as standing infrastructure.
+The first future-feature target is defined below. Other parked candidates (route-planned farming via minimap position tracking, multi-activity session orchestration, self-restarting wrapper as standing infrastructure, inventory item actions beyond FF-1's needs) await their own planning sessions.
+
+### FF-1 — Autonomous whisper farming (near-term North Star)
+
+The payoff activity every parity milestone builds toward: the bot farms Tree of Whispers objectives unattended. Architecture is a three-layer churn firewall, designed around the observation that whispers are a rotating cast of instances drawn from a small stable set of behavioral archetypes:
+
+- **Archetype executors (code, d4_bot):** one executor per behavioral pattern, composed from parity capabilities — map-pin the objective (P-4), navigate (Phase 4), fight (M1), detect completion. Change only when the game invents a new mechanic.
+- **Objective definitions (YAML, season overlays):** each known whisper maps to an archetype + parameters (completion signal, templates, timeouts) inside the existing configs/seasons structure (F-CFG-5). Seasonal churn lands here as data edits captured via F-DIAG-4, never as code.
+- **Selection layer:** reads which whispers are active and chooses only those whose archetype the bot can execute, skipping the rest. This is the honest-scoping mechanism: v1 skips interiors; each later archetype executor widens the farmable set without touching existing layers.
+
+**Ratified archetype taxonomy (non-seasonal content; per operator ground-truthing):** area-kill (kill until meter fills), go-interact (travel to point, interact), kill-target (specific named spawn), interior-instance (requires entering dungeon/cellar — out of scope for v1 executors, in scope for selection-layer recognition). Seasonal whispers that fit no archetype are skipped by the selection layer by design.
+
+**Completion detection:** per-archetype signals read from stable HUD affordances (whisper progress display, cache-ready state — legacy WhisperCacheEnabled icon is reference data). Template/ROI work, seasonal-overlay friendly.
+
+**Dependencies:** M1 (combat), M2 (composition), M3 (map interaction) at minimum; mount handling (legacy Horse* icons are reference data) is a strong accelerator and gets scoped in FF-1's planning pass. FF-1 activates only via a full planning pass producing BUILD_PLAN phases.
 
 ---
 
@@ -81,11 +97,17 @@ HALO_MIGRATION.md remains the banked spec (parity-first, inference-only mileston
 
 ## 6. Open decisions
 
-- **OD-1 — Scanning semantics.** What did game_bot's scan behavior physically do (movement sweep? target cycling? something else)? D4's camera is fixed, so the answer shapes whether scan lives inside AttackProcessor or as a separate search behavior. Needs Brian's recollection or a game_bot code read.
+- **OD-1 — Scanning semantics.** RESOLVED — scanning = facing sweep reading the targeting UI's enemy health bar; see §2 P-2 and the M1 architecture note in §3.
 - **OD-2 — Ordering pressure.** Dependency cleanliness (table order in §3) vs. video-content cadence (inventory early). Unresolved; revisit when Phase 4 nears completion.
 - **OD-3 — Grid-navigation framework promotion.** Does menu-grid cursor navigation enter `bot_framework/contrib/` at M4, or stay in d4_bot until Halo proves the second consumer? Placement test from ARCHITECTURE applies.
 - **OD-4 — Map-cursor movement approach.** Revive axis-calibration CSV data (as redesigned YAML), re-measure fresh, or attempt closed-loop cursor steering via icon detection feedback? Decided in M3's planning pass.
 - **OD-5 — Parity scope ratification.** The four Proposed scopes in §2 (thin / full / read-first / full) await explicit ruling; treat as accepted defaults if unchallenged by the time each milestone's planning pass begins.
+- **OD-6 — Board composition measurement.** What fraction of a typical whisper board is completable without entering interiors? Two-minute in-game check at the whisper board; determines whether FF-1 v1 (no interior executors) has enough farmable density to demo. Unmeasured.
+- **OD-7 — FF-1 selection input.** Does v1's selection layer read the whisper board/map itself (extends P-4 machinery), or does the operator pre-select targets and the bot only executes? Operator-selects is a legitimate thinner first cut. Undecided.
+
+### Standing principle — detections are grow-on-demand
+
+No master catalog of legacy detections is ported. Each milestone's planning pass declares the detections it needs; templates are captured fresh via F-DIAG-4 (seasonal art churn makes speculative templates stale on arrival). One exception is named as shared infrastructure: **screen-mode detection** (which screen is the game showing — world HUD, map, character/inventory) backing `GameState.screen_mode`. It is specified once and attached to whichever multi-screen milestone activates first (M3 or M4 per OD-2). Legacy HUD, Map, CharacterInterface, InventorySelected icons are its reference data.
 
 ---
 
