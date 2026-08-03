@@ -91,6 +91,8 @@ policy to CHEATSHEET". Docs-only, no code changes.
 - **New command / detector / YAML loop:** prompts C-1 / C-2 / C-3. If Copilot says the schema can't express it — believe it, and treat it as a design question, not a special case.
 - **Milestone:** tag `bot_framework`, record both hashes in BUILD_PLAN, refresh CLAUDE.md.
 - **Late-night misbehavior:** one more run with recording on, save the dataset, stop. Diagnose offline tomorrow (Part 3, last row).
+- **Commit every deliverable:** commit at every deliverable, not just at end of phase. A phase is a sequence of committed deliverables; reverting should never cost more than one deliverable. (Learned via the Phase 3 revert loss.)
+- **Audit-prompt pattern:** when multiple verification checks are pending, batch them into one Copilot prompt that runs all checks and saves the outputs/artifacts to disk for offline review, instead of running checks serially in conversation.
 
 ## Doc maintenance (the docs only work if they stay true)
 

@@ -164,6 +164,27 @@ Run COPILOT_PROMPTS.md **C-4**'s checklist. Summary of the order that finds it f
 **Symptom:** acceptance passes on replay, fails live (or vice versa).
 **Understand:** replay is deterministic and typically runs with `latency_frames=0` recordings played through ReplayCapture; live has real latency, dropped frames, and lighting/weather variance. Replay validates *detector truth and logic*, live validates *timing and control*. When they disagree on detection, re-record — the game's look drifted (season, time-of-day, region). When they disagree on behavior, it's almost always timing: audit pre-effect windows against the live recording's action log (the Phase 4a technique).
 
+### RB-8 — Capture runs at roughly half expected FPS despite correct device config
+
+**Symptom:** capture runs at roughly half expected FPS despite correct device config.
+**Cause:** another process holds the DirectShow capture device open concurrently (browser tab, recording software, a previous bot process that didn't release).
+**Fix:** identify and close the competing consumer, then restart the capture session. Standing habit: before any bot session, verify nothing else has the GC573 open.
+**Related:** same root-cause family as exclusive-access black frames — a competing consumer can degrade FPS (shared access) or return black frames entirely (exclusive access held elsewhere).
+
+### RB-9 — Copilot agent session is running system Python despite a correctly provisioned venv
+
+**Symptom:** Copilot agent session runs code whose imports fail or behaves as if packages are missing, despite a correctly provisioned venv.
+**Cause:** the agent session silently lost venv context and is running system Python.
+**Recognition:** traceback paths under `AppData\Local\Programs\Python` instead of the venv path.
+**Fix:** at every Copilot session start, run `python -c "import sys; print(sys.executable)"` and verify it prints the venv path before any other work.
+
+### RB-10 — cv2.imshow fails while capture and inference work fine
+
+**Symptom:** `cv2.imshow` fails or windows never appear in diagnostic scripts, while capture and inference work fine.
+**Cause:** `opencv-python-headless` was pulled in as a transitive dependency (yolov5/ultralytics) and shadows the GUI-capable build.
+**Recognition:** distinct from a genuine `cv2` install failure — imports succeed, only GUI functions break.
+**Fix:** `pip uninstall opencv-python-headless`, then reinstall `opencv-python` (GUI build) in the venv. Durable fix is pinning `opencv-python` explicitly in `bot_framework [ml]` (tracked as QUESTIONS.md environment-hygiene item 2).
+
 ---
 
 ## Part 3 — "When in Doubt" Defaults

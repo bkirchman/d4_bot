@@ -52,25 +52,17 @@
 ## Doc updates pending
 8. ~~**Core-interface drift is a recurring failure mode.** Two incidents now (this one; the earlier `process` argument name churn). Before any phase whose prompt cites a framework class signature, the standing rule is: have Copilot quote the actual source file back before writing code. Consider adding a lightweight signature-check script that greps FEATURE_SPECS §0 signatures against framework source and fails on mismatch — deferred, but worth a session when it bites a third time.~~
    **Resolved 2026-07-18**: FrameProcessor signature drift was formally captured in ARCHITECTURE ADR-015 and reflected in FEATURE_SPECS §0 and BUILD_PLAN workflow text; Phase 4a work (including ADR-014's overlapping-burst emission) confirmed the quote-the-source discipline as the working practice. Signature-check script remains deferred and is tracked as future hardening, not a blocker for 4a closeout.
-9. TROUBLESHOOTING.md should absorb tonight's runtime bugs:
-   - RB-8: capture running at half FPS due to another consumer holding
-     the DirectShow device open (fixed by killing the other consumer).
-   - RB-9: Copilot agent sessions using system Python instead of venv;
-     recognize via traceback paths under AppData\Local\Programs\Python.
-   - RB-10: opencv-python-headless breaking cv2.imshow, distinct from
-     genuine cv2 install failures.
-10. Add "always commit at every deliverable, not just at end of phase"
-    as a standing habit to CHEATSHEET.md build loop. Learned via the
-    Phase 3 revert loss.
-11. Add "audit prompt" pattern to CHEATSHEET.md — batch multiple
-    verification checks into one Copilot prompt that saves artifacts
-    to disk for offline review, instead of doing them serially.
+
+Items 8–11 cleared to TROUBLESHOOTING.md / CHEATSHEET.md on 2026-08-03.
 
 ## Workflow annoyances
 12. PowerShell up-arrow history stopped working in VS Code terminal
     despite ConsoleHost and PSReadLine 2.0.0 loaded. Fresh terminal
     didn't fix. Workaround: Ctrl+R for reverse search. Try: upgrade
     PSReadLine to 2.3+, check profile, try Windows Terminal directly.
+
+## Active debugging
+- **Black-frame capture issue (OPEN, mid-debug):** AVerMediaCapture returning all-black frames. Traced to a competing process holding exclusive DirectShow access to the GC573. Device became visible to probe but still returned black frames at last session end. Next steps: enumerate processes with DirectShow handles before bot sessions; confirm frames return after closing the competing consumer; then resume Phase 4a verification and run the pending overlap-burst implementation prompt (ADR-014).
 
 ## Dataset labeling (parked for later)
 13. If replay verification is ever going to catch regressions, need a
