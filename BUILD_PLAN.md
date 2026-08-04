@@ -117,7 +117,7 @@ Capture + UDP are already proven on this rig via diablo_bot, so this phase is wi
 **d4_bot completion commit:** a627341
 **Validated against bot_framework commit:** 1b1aed0
 **Completion date:** 2026-07-18
-**Acceptance status:** Passed. See ADR-014 and ADR-<NNN> for scope-shaping decisions during this phase. Phase 4a.1 (minimap-pin detection + tighter arrival) is banked as immediate follow-up before Phase 4b to address the detector-reliability tuning tax accepted during 4a acceptance.
+**Acceptance status:** Passed. See ADR-014 and ADR-019 for scope-shaping decisions during this phase. Phase 4a.1 (minimap-pin detection + tighter arrival) is banked as immediate follow-up before Phase 4b to address the detector-reliability tuning tax accepted during 4a acceptance.
 
 **Features:** F-CTL-2, F-NAV-1 (states `STEERING`, `PRE_EFFECT`, `SEARCHING`, `ARRIVED` — **no** `STUCK_RECOVERY` yet), F-NAV-2, F-FLOW-1.
 
@@ -134,6 +134,10 @@ Capture + UDP are already proven on this rig via diablo_bot, so this phase is wi
 - **Pre-run gates:** `configs/navigation.yaml` populated with concrete tuned values (no factory defaults); `move_duration` in `buttons.yaml` verified via `diag_udp_echo.py` — the character visibly moves in the intended direction for the intended duration.
 
 ### Phase 4a.1 — Reliability pass: minimap-pin detection and compound-signal arrival
+
+**Status record:**
+- **Part 1 (minimap-pin detector, F-DET-3):** Complete. Commits `6e4def0` and `4620c75`. Date: 2026-07-18.
+- **Part 2 (compound-signal arrival amendment):** NOT IMPLEMENTED — `navigation.py` contains no pin state reference and `configs/navigation.yaml` has no `nav_arrow_only_arrival_backstop_ticks` key. Phase 4a.1 remains open.
 
 Scope: implement a minimap-pin detector using OpenCV template matching. Wire pin_visible / pin_position into GameState. Amend NavigationProcessor's arrival heuristic to require both nav_arrows AND pin lost per Interpretation A (single both_lost counter). Tune arrival_confirm_ticks from 120 back to 24. See ADR-015.
 
