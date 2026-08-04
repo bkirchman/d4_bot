@@ -64,6 +64,33 @@ Items 8–11 cleared to TROUBLESHOOTING.md / CHEATSHEET.md on 2026-08-03.
 ## Active debugging
 - ~~Black-frame capture issue.~~ **Resolved 2026-08-03:** transient capture-card/driver fault, cleared by restart. Not a code defect. If it recurs, first suspect is the hardcoded MJPG FOURCC negotiation in AVerMediaCapture._open_capture — OpenCV accepts an unsupported format silently and delivers black frames with valid geometry.
 - **Phase 4a.1 part 2 outstanding (arrival unsafe).** NavigationProcessor does not read pin state; arrival remains single-signal. configs/navigation.yaml has arrival_confirm_ticks: 12, matching neither ADR-015's pre-amendment value (120) nor its target (24), and no backstop key exists. Live navigation runs will false-arrive on nav_arrow dropouts until ADR-015's compound-signal amendment is implemented. Do not run run_nav.py for acceptance until this closes.
+- **Nav-arrow model recall is degraded.** The legacy YOLOv5 nav-arrow
+   checkpoint requires confidence_threshold 0.25 to fire reliably;
+   configs/detectors/nav_arrow.yaml shipped at 0.50 and the detector
+   was unreliable there. Operator-confirmed 2026-08-04. This
+   quantifies the detector unreliability ADR-015's compound-signal
+   arrival was designed to tolerate, and strengthens the case that
+   compound-signal arrival is load-bearing rather than defensive — at
+   0.25 the arrow stream necessarily includes low-confidence
+   detections. Relevant to the YOLOv5-to-v8 retraining debt (items
+   6-7): retraining is the real fix, 0.25 is the workaround. Do not
+   raise the threshold back without retraining or re-measuring.
+
+- **Minimap-pin detector diverges from the detector config pattern.**
+   Every other detector has its own YAML in configs/detectors/,
+   discovered by globbing that directory per F-DET-1 and prompt C-2.
+   The pin detector is special-cased: build_detectors() reads its
+   settings from configs/navigation.yaml under minimap_pin_* keys via
+   _load_navigation_config(). Consequences: (a) its template was
+   untracked from 6e4def0 until 2026-08-04 because nothing in
+   configs/detectors/ referenced it; (b) seasonal overrides reach it
+   through the navigation: block rather than the detector-override
+   path, a different code path from every other detector; (c)
+   minimap_pin_template_path resolves to configs/minimap_pin_template.png,
+   outside the seasons/ tree, though minimap iconography is seasonal
+   churn per F-CFG-5. Migration to configs/detectors/minimap_pin.yaml
+   with a seasonal template path is cheap now and gets expensive once
+   season overrides depend on the current shape.
 
 ## Dataset labeling (parked for later)
 13. If replay verification is ever going to catch regressions, need a
