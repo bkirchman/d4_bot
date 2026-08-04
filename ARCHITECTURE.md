@@ -462,6 +462,33 @@ Because the compound signal is much stronger than either alone (probability of b
 
 **Consequences.** Stick-contention work moves wholly to M2, which gains "nav + combat concurrently" as its demo. PowerHUDDetector intent is not carried into v1. The M1 loadout must avoid movement skills in rotation.
 
+### ADR-020 — M1 combat: detection strategy, sweep mechanism, and phase split
+
+**Date:** 2026-08-04
+**Status:** Accepted.
+
+**Context.** M1 planning pass. The operator supplied game-mechanics ground truth that reshaped the banked COMBAT_MILESTONE.md sketch: character facing follows left-stick direction under D4's fixed overhead camera, and a brief stick input turns the character with negligible displacement; boss and elite health bars appear on proximity regardless of the facing cone; and boss bar appearance churns substantially season to season and is unreliable to detect.
+
+**Decision.**
+1. Sweep is continuous stick rotation reusing ADR-014's overlapping-burst emitter with the direction advancing programmatically per emission — not discrete nudge-wait-check cycles. Latency overshoot is bounded by targeting-cone half-width rather than eliminated. New config keys: sweep_angular_step_degrees, sweep_stick_magnitude. A sweep is bounded to one revolution; no open-ended spinning.
+2. Enemy detection keys on health-bar PRESENCE, deliberately loosely, on whatever element proves invariant across enemy types and seasons. The detector does not classify enemy type by template. Bar templates live in configs/seasons/sNN/ from day one per F-CFG-5, not in base configs.
+3. Boss/normal discrimination is behavioral, via bar continuity across a sweep: a bar persisting independent of facing is a proximity signal (boss/elite); a bar appearing and vanishing as the cone passes is a facing signal (normal).
+4. Boss bypass: a bar present on entry to IDLE sends the processor directly to ATTACKING. Sweep runs only when no bar is present.
+5. M1 splits into two phases: 5a detection-only and replay-verifiable; 5b the full processor including sweep, rotation, and survival. Sweep is NOT split out separately because it reuses the proven ADR-014 emitter rather than introducing new movement machinery.
+
+**Consequences.**
+- The F-DIAG-4 measurement task is reframed: capture normal, elite, and boss bars and identify the stable invariant across all three, rather than identifying distinguishing features. This replaces the "one template or two" question posed in COMBAT_MILESTONE.md §2.
+- Sweep and steering share a movement idiom, removing an idiom mismatch M2's composition work would otherwise inherit.
+- ENGAGE holds facing by emitting no stick input; ATTACKING emits button presses only.
+- Loose detection plus behavioral inference degrades gracefully across seasonal churn. A tight template match would silently stop firing on next season's boss bars, producing false combat_clear with a boss actively engaged — a failure mode with no visible symptom until the bot dies.
+- P-2 parity scope ratifies as FULL per OD-5's unchallenged-default rule; M1 delivers the first installment, FF-1 completes area-clear.
+- FF-2 (minimap threat awareness) recorded in ROADMAP.md §4.
+
+**Alternatives considered.**
+- Discrete nudge-wait-check sweep. Rejected: targeting-cone width absorbs the latency overshoot, and the discrete form introduces a second movement idiom for no gain.
+- Classifying enemy type by which template matched. Rejected on operator evidence that boss bars churn seasonally and detect poorly.
+- Minimap red-dot reading as the M1 scan mechanism. Deferred to FF-2; it is an optimization over a working sweep, not a substitute for one.
+
 ---
 
 *End of ARCHITECTURE.md. Next document: FEATURE_SPECS.md.*
