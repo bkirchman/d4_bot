@@ -375,6 +375,86 @@ M1 scope is defensive combat only (not area-clear): detect target acquisition fr
 - **Complexity:** L.
 - **Acceptance (live and replay):** revive UI is reliably detected when dead, absent during normal HUD operation, and remains stable under transient combat overlays.
 
+### F-CBT-1 — CombatProcessor state machine
+
+- **Purpose:** Synchronous combat control loop that consumes detector-driven `GameState` and emits combat actions until a terminal outcome (`combat_clear`, `combat_timeout`, `character_dead`).
+- **Layer:** d4_bot processor (`src/d4_bot/processors/combat.py`) implementing `FrameProcessor`.
+- **Origin:** New M1 processor design, aligned with defensive-combat scope and honest-failure terminal statuses.
+- **Consumes:** `GameStateUpdater`, `StateDiff`, command registry payloads, and `capture.latency_frames` (or injected `latency_frames`) for all verdict-gating windows.
+- **Surface (spec):** `CombatProcessor(updater, state_differ, commands, latency_frames: int, config: dict, loadout: dict)` implementing `process(frame: StampedFrame, services: ProcessorServices) -> Action | None`.
+- **State machine (explicit enum):**
+  - `IDLE` — watch for `enemy_appeared` edge from F-DET-4.
+  - `ENGAGE` — preserve/acquire facing that produced targeting; initialize attack rotation context.
+  - `ATTACKING` — execute F-CBT-2 loadout steps while enemy health-bar remains present.
+  - `KILL_VERIFY_PRE_EFFECT` — after a candidate kill/loss signal, hold verdicts until the latency gate expires.
+  - `SWEEP` — short facing sweeps to reacquire off-cone targets; reacquire returns to `ENGAGE`, completed sweep with no target returns `combat_clear`.
+  - `TERMINAL` — no emission; exposes terminal status to the entry script.
+- **Latency-gating contract (hard rule):**
+  - No kill, stuck, or arrival-style verdict may evaluate inside the post-action pre-effect window.
+  - The gate duration is computed from runtime `latency_frames` plus action duration where applicable; no literal frame counts in processor logic.
+  - Mid-fight health-bar loss shorter than the gate is treated as transient loss/reposition, not kill confirmation.
+- **Failure outcomes:**
+  - `combat_timeout` when target presence persists beyond configured engage timeout.
+  - `character_dead` when F-DET-6 reports revive-screen presence beyond hysteresis.
+- **Runtime config (`configs/navigation.yaml` or dedicated combat config):**
+  - `combat_engage_timeout_ticks: int`
+  - `combat_sweep_step_duration_ms: int`
+  - `combat_sweep_steps: int`
+  - `combat_post_action_verify_ticks: int` (additional guard beyond `latency_frames` where needed)
+  - `combat_tick_cadence_divisor: int` (optional cadence for costly checks)
+- **Do-NOT guardrails:** no threads/async/sleeps, no direct UDP calls, no detector bypasses, no latency literals.
+- **Complexity:** H.
+- **Acceptance (live):** three consecutive combat-only sessions: all spawned normals are engaged and killed; off-cone enemies are reacquired by sweep; clear state exits as `combat_clear`; induced obstruction exits cleanly as `combat_timeout`; forced death exits as `character_dead`.
+
+### F-CBT-2 — Loadout rotation with gate fields
+
+- **Purpose:** Define and execute an ordered per-build combat rotation where each step may be conditionally gated by resource/cooldown predicates.
+- **Layer:** d4_bot combat policy data + runner (`src/d4_bot/combat/loadout.py` and config YAML under `configs/`).
+- **Origin:** New, with gate architecture intentionally present even though v1 defaults to ungated presses.
+- **Surface (spec):**
+  - `CombatLoadout` schema loaded from YAML.
+  - `LoadoutRunner(loadout: dict, commands: CommandRegistry, config: dict)` with `next_action(state: GameState) -> Action | None`.
+- **YAML schema (ordered `rotation` list):** each entry includes
+  - `command: str` — semantic command name from `buttons.yaml`.
+  - `delay_ticks: int` — delay before this step may fire again.
+  - `gate: str` — one of `none`, `resource`, `cooldown`.
+  - `gate_field: str | null` — state field the gate evaluates (required when gate != `none`).
+  - `gate_threshold: float | null` — threshold comparator value for numeric gates.
+  - `gate_polarity: str | null` — `gte` or `lte` for threshold semantics.
+- **Gate semantics:**
+  - `none`: always eligible when timing allows.
+  - `resource`: eligible only if the bound resource field satisfies threshold/polarity.
+  - `cooldown`: eligible only if the bound cooldown-ready field indicates ready state.
+- **v1 operating policy:** all shipped M1 entries use `gate: none` by default; gate fields are mandatory schema support for evidence-driven upgrades without redesign.
+- **Execution rules:**
+  - Preserve list order cyclically.
+  - Skip (do not block) ineligible gated entries and evaluate the next step.
+  - Never emit multiple button actions in one tick.
+  - All press durations live in `buttons.yaml`; loadout never hardcodes firmware timings.
+- **Do-NOT guardrails:** no implicit command name remapping, no hardcoded build assumptions, no direct detector reads outside `GameState`.
+- **Complexity:** M.
+- **Acceptance:** with an M1 loadout configured to `gate: none`, combat runs stable timed rotation; with synthetic state fixtures, `resource` and `cooldown` gates correctly suppress/allow only the targeted steps.
+
+### F-CBT-3 — Combat entry script (`scripts/run_combat.py`)
+
+- **Purpose:** Dedicated live harness for M1 combat verification with navigation disabled, so combat behavior is testable in isolation.
+- **Layer:** d4_bot flow script.
+- **Origin:** New entry-point parallel to `run_nav.py`.
+- **Behavior:**
+  - Loads layered config and season overrides.
+  - Builds capture, controller output, command registry, detectors, `GameStateUpdater`, loadout, and `CombatProcessor`.
+  - Runs synchronous `BotLoop` stepping until processor reaches terminal status.
+  - Prints terminal status and key counters (`kills`, `sweeps`, `potions_used`, timeout/death reason).
+  - Optional `--record` path uses `FrameRecorder` exactly like navigation flow, without modifying `BotLoop` internals.
+- **CLI flags (minimum):**
+  - `--season <name>`
+  - `--config-dir <path>`
+  - `--loadout <name-or-path>`
+  - `--record` and recording output options consistent with existing flow conventions
+- **Do-NOT guardrails:** no concurrent NavigationProcessor in M1 script, no background threads, no hidden fallback configs.
+- **Complexity:** M.
+- **Acceptance (live):** combat-only run exits with one of the declared terminal statuses and prints enough structured output for `verify_phase_*` style pass/fail checks.
+
 ---
 
 ## 9. Flow Layer / Entry Points
