@@ -341,9 +341,9 @@ Format: dated ADR-style entries, one paragraph each, appended chronologically. N
 **ADR-013 (2026-07-07) — Seasonal churn is a designed-for workflow, not an emergency.** Season folders under `configs/seasons/sNN/` hold fresh icon captures and an overrides.yaml that takes precedence over base configs. `capture_icons.py` plus a detector verification script make the ~12-week refresh a documented, repeatable procedure with a recurring Copilot prompt.
 
 
-### ADR-<NNN> — FrameProcessor.process takes a services bundle, not a raw FrameHistory
+### ADR-019 — FrameProcessor.process takes a services bundle, not a raw FrameHistory (number assigned retroactively 2026-08-03)
 
-**Date:** <YYYY-MM-DD>
+**Date:** 2026-07-18
 **Status:** Accepted (retroactive; framework already ships this signature).
 
 **Context.** FEATURE_SPECS §0 documented `FrameProcessor.process(frame, history)` — a two-arg call where the second argument was the FrameHistory ring buffer. The framework has since evolved: processors need more than history to do their job (command-registry access, capture metadata such as latency_frames and fps, and future collaborators we don't want to thread through constructors one at a time). The live signature in `bot_framework/framework/interfaces.py` is `process(frame, services)` where `services` is a bundle object. This drift was discovered while launching Phase 4a and is the second spec-drift incident on a core interface (see QUESTIONS.md).
