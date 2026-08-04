@@ -9,7 +9,24 @@
 
 ## 1. Where we are
 
-Phase 4a (steering-only navigation) is mid-stream. Two open items precede everything in this roadmap: the black-frame capture issue (competing DirectShow consumer) and the un-executed overlapping-burst implementation prompt (ADR-014). Nothing below starts until the Phase 4 milestone completes per BUILD_PLAN.md.
+Phase 4a (steering navigation) is complete: commit a627341,
+2026-07-18, including ADR-014's overlapping-burst emission. Phase
+4a.1 is partially complete — the minimap-pin detector shipped
+(6e4def0, 4620c75) but ADR-015's compound-signal arrival amendment
+that consumes it was never implemented, leaving arrival on the
+single-signal path. Phase 4b (stuck detection and recovery ladder)
+has not started and holds the navigation milestone gate.
+
+Order of remaining Phase 4 work: 4a.1 part 2, then 4b.
+
+M1 planning may proceed in parallel — COMBAT_MILESTONE.md scopes M1
+as standalone-testable without navigation running — but no milestone
+below is considered started until Phase 4b closes per BUILD_PLAN.md.
+
+Known snag for Phase 4b: F-NAV-3's stuck definition and the B-4b
+prompt both key on "movement burst active or just completed," an
+anchor that no longer exists under ADR-014's continuous emission. A
+replacement anchor must be specified before B-4b is run.
 
 ---
 
