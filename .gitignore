@@ -6,3 +6,5 @@ dist/
 build/
 frames/
 *.pt
+probe_frames/
+run_log_overlap.txt
