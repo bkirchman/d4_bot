@@ -51,7 +51,7 @@
 
 ## Doc updates pending
 8. ~~**Core-interface drift is a recurring failure mode.** Two incidents now (this one; the earlier `process` argument name churn). Before any phase whose prompt cites a framework class signature, the standing rule is: have Copilot quote the actual source file back before writing code. Consider adding a lightweight signature-check script that greps FEATURE_SPECS §0 signatures against framework source and fails on mismatch — deferred, but worth a session when it bites a third time.~~
-   **Resolved 2026-07-18**: FrameProcessor signature drift was formally captured in ARCHITECTURE ADR-015 and reflected in FEATURE_SPECS §0 and BUILD_PLAN workflow text; Phase 4a work (including ADR-014's overlapping-burst emission) confirmed the quote-the-source discipline as the working practice. Signature-check script remains deferred and is tracked as future hardening, not a blocker for 4a closeout.
+   **Resolved 2026-07-18**: FrameProcessor signature drift was formally captured in ARCHITECTURE ADR-019 and reflected in FEATURE_SPECS §0 and BUILD_PLAN workflow text; Phase 4a work (including ADR-014's overlapping-burst emission) confirmed the quote-the-source discipline as the working practice. Signature-check script remains deferred and is tracked as future hardening, not a blocker for 4a closeout.
 
 Items 8–11 cleared to TROUBLESHOOTING.md / CHEATSHEET.md on 2026-08-03.
 
@@ -62,7 +62,8 @@ Items 8–11 cleared to TROUBLESHOOTING.md / CHEATSHEET.md on 2026-08-03.
     PSReadLine to 2.3+, check profile, try Windows Terminal directly.
 
 ## Active debugging
-- **Black-frame capture issue (OPEN, mid-debug):** AVerMediaCapture returning all-black frames. Traced to a competing process holding exclusive DirectShow access to the GC573. Device became visible to probe but still returned black frames at last session end. Next steps: enumerate processes with DirectShow handles before bot sessions; confirm frames return after closing the competing consumer; then resume Phase 4a verification and run the pending overlap-burst implementation prompt (ADR-014).
+- ~~Black-frame capture issue.~~ **Resolved 2026-08-03:** transient capture-card/driver fault, cleared by restart. Not a code defect. If it recurs, first suspect is the hardcoded MJPG FOURCC negotiation in AVerMediaCapture._open_capture — OpenCV accepts an unsupported format silently and delivers black frames with valid geometry.
+- **Phase 4a.1 part 2 outstanding (arrival unsafe).** NavigationProcessor does not read pin state; arrival remains single-signal. configs/navigation.yaml has arrival_confirm_ticks: 12, matching neither ADR-015's pre-amendment value (120) nor its target (24), and no backstop key exists. Live navigation runs will false-arrive on nav_arrow dropouts until ADR-015's compound-signal amendment is implemented. Do not run run_nav.py for acceptance until this closes.
 
 ## Dataset labeling (parked for later)
 13. If replay verification is ever going to catch regressions, need a
