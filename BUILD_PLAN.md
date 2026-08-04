@@ -185,19 +185,61 @@ Acceptance:
 
 ---
 
+## Phase 5 — Combat Milestone (M1)
+
+**Prerequisites:** Phase 4b.
+
+### Phase 5a — Combat detection
+
+**Validated against bot_framework commit:** ________
+
+**Prerequisites:** Phase 4b.
+
+**Features:** F-DET-4, F-DET-5, F-DET-6, F-DIAG-5, GameState extension.
+
+**Files to create:**
+- `d4_bot/configs/detectors/enemy_health_bar.yaml`
+- `d4_bot/configs/detectors/health_globe.yaml`
+- `d4_bot/configs/detectors/revive_screen.yaml`
+- `d4_bot/scripts/diag_combat_tuner.py`
+- `d4_bot/scripts/verify_phase_5a.py`
+- `d4_bot/configs/rois.yaml` **modified**
+- `d4_bot/src/d4_bot/state.py` **modified**
+
+**Operator measurement task (verbatim):** The F-DIAG-4 measurement task is reframed: capture normal, elite, and boss bars and identify the stable invariant across all three, rather than identifying distinguishing features.
+
+**Acceptance — `verify_phase_5a.py`:**
+
+### Phase 5b — Combat processor (M1 milestone gate)
+
+**Validated against bot_framework commit:** ________
+
+**Prerequisites:** Phase 5a.
+
+**Features:** F-CBT-1, F-CBT-2, F-CBT-3.
+
+**Files to create:**
+- `d4_bot/src/d4_bot/processors/combat.py`
+- `d4_bot/src/d4_bot/combat/loadout.py`
+- `d4_bot/scripts/run_combat.py`
+- `d4_bot/scripts/verify_phase_5b.py`
+
+**Acceptance — `verify_phase_5b.py` [live] (verbatim):** Combat-only entry script; character parked in a spawn-active area with the M1 loadout. Pass = across three consecutive sessions: every spawned normal enemy engaged and killed; sweep finds off-cone enemies; combat_clear reached when the area is genuinely clear; a potion fires when health drops below threshold; an induced unkillable/obstructed scenario exits cleanly with combat_timeout.
+
+---
+
 ## Phase 5+ — Deferred (listed only; each needs its own planning pass)
 
 Milestone-level ordering and parity scope for these items now governed by ROADMAP.md; this table remains the d4_bot execution ledger.
 
 | # | Item | One-liner |
 |---|---|---|
-| 5 | Combat foundation | Enemy detection → `enemy_present` → AttackProcessor on `enemy_appeared` edges; loadout YAML per season |
-| 6 | Processor + YAML-loop composition | The named framework gap from ADR-006; unlocks "navigate, then run a scripted sequence" activities |
-| 7 | Self-restarting run wrapper | Restart-on-terminal-status (game_bot FlowRestartException intent) |
-| 8 | Fishing absorption | Port diablo_bot's farm_v1 YAML + detector configs into d4_bot; archive diablo_bot |
-| 9 | Minimap position tracking | Only if a concrete activity demands routes; re-scoped from scratch, not revived from game_bot |
-| 10 | Town/menuing scripted loops | YAML content loops using template detectors + season icons |
-| 11 | Halo migration | Gen-3 stack as FrameProcessors on the framework; first external test of contrib/ml |
+| 5 | Processor + YAML-loop composition | The named framework gap from ADR-006; unlocks "navigate, then run a scripted sequence" activities |
+| 6 | Self-restarting run wrapper | Restart-on-terminal-status (game_bot FlowRestartException intent) |
+| 7 | Fishing absorption | Port diablo_bot's farm_v1 YAML + detector configs into d4_bot; archive diablo_bot |
+| 8 | Minimap position tracking | Only if a concrete activity demands routes; re-scoped from scratch, not revived from game_bot |
+| 9 | Town/menuing scripted loops | YAML content loops using template detectors + season icons |
+| 10 | Halo migration | Gen-3 stack as FrameProcessors on the framework; first external test of contrib/ml |
 
 ---
 
