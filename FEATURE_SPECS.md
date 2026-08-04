@@ -308,11 +308,72 @@ Schemas are specified as key tables. All files are YAML. All keys snake_case. Th
 
 ---
 
-## 8. Combat Layer — DEFERRED (listed, not specified)
+## 8. Combat Layer
 
-Carried-forward intent from game_bot, to be specified in a later planning session: enemy-presence detection feeding `GameState.enemy_present`; an AttackProcessor reacting to `enemy_appeared` edges; power/cooldown tracking via HUD template detectors; loadout-specific ability maps as season-varying YAML. **No phase in BUILD_PLAN.md touches these.** The GameState stubs (F-GS-1) exist so adding combat later doesn't reshape the snapshot.
+M1 scope is defensive combat only (not area-clear): detect target acquisition from the game's targeting HUD, run a loadout rotation, verify kills with latency-aware gating, sweep for off-cone targets, and report terminal outcomes (`combat_clear`, `combat_timeout`, `character_dead`).
 
-Also deferred: processor+YAML-loop composition (running NavigationProcessor concurrently with a scripted loop — named framework gap, ADR-006); minimap position tracking; town/menuing loops; diablo_bot fishing absorption.
+### F-DET-4 — Enemy health-bar presence detector
+
+- **Purpose:** Detect whether the game's targeting UI health bar is present, providing the canonical combat engagement signal for `GameState.enemy_present`.
+- **Layer:** d4_bot detector wiring (`src/d4_bot/detectors/`) using framework detector primitives.
+- **Origin:** New detector policy chosen for M1 combat: rely on stable HUD targeting UI rather than visual monster detection.
+- **Surface (spec):** `EnemyHealthBarDetector(config: dict)` implementing the framework detector interface.
+- **Method:** ROI-constrained template/color detection over the enemy-target health-bar UI region. The detector returns a boolean presence verdict and a confidence-like score used for diagnostics.
+- **Runtime config (combat detector YAML):**
+  - `enemy_health_bar_roi: [x, y, w, h]` — named via `rois.yaml` indirection at build time; no coordinates in Python.
+  - `enemy_health_bar_threshold: float` — minimum match/confidence to classify as present.
+  - `enemy_health_bar_hysteresis_ticks: int` — debounce to prevent one-frame flicker.
+  - `enemy_health_bar_cadence: int` — detector cadence in frames.
+  - `enemy_health_bar_variant: str` — selector for measured variant set (`normal`, `elite`) when separate templates are needed.
+- **Outputs:**
+  - `enemy_present: bool` — debounced verdict.
+  - `enemy_health_bar_score: float` — raw detector score for tuning and logs.
+  - `enemy_health_bar_frame_id: int` — origin frame of the current reading for staleness checks.
+- **Do-NOT guardrails:** no monster-body/YOLO logic, no direct GameState mutation, no coordinate literals in code, no drawing side effects.
+- **Complexity:** M.
+- **Acceptance (live and replay):** with captured targeted/non-targeted sequences, detector cleanly separates bar-present vs bar-absent states; with intentional one-frame noise, debounced output does not flicker; elite/normal variants are both detected according to measured configuration.
+
+### F-DET-5 — Health globe fill detector
+
+- **Purpose:** Estimate player survivability by reading the health globe fill level and exposing `health_fill_fraction` for potion policy.
+- **Layer:** d4_bot detector wiring (`src/d4_bot/detectors/`) over framework color/ROI mechanisms.
+- **Origin:** New for unattended-farming survivability in M1.
+- **Surface (spec):** `HealthGlobeFillDetector(config: dict)` implementing the framework detector interface.
+- **Method:** ROI crop of the health globe plus color-mask sampling to estimate filled pixels as a fraction in `[0.0, 1.0]`; boolean low-health verdict is computed from configured threshold.
+- **Runtime config (combat detector YAML):**
+  - `health_globe_roi: [x, y, w, h]` — ROI name resolved through `rois.yaml`.
+  - `health_globe_color_lower` / `health_globe_color_upper` — HSV/BGR bounds used by the mask pipeline.
+  - `health_globe_fill_threshold: float` — potion trigger threshold (for example, drink when fill <= threshold).
+  - `health_globe_hysteresis_ticks: int` — debounce around the threshold crossing.
+  - `health_globe_cadence: int` — detector cadence.
+- **Outputs:**
+  - `health_fill_fraction: float` — normalized fill estimate.
+  - `health_low: bool` — debounced threshold verdict consumed by combat policy.
+  - `health_globe_frame_id: int` — origin frame for latency-aware decision gating.
+- **Do-NOT guardrails:** no potion emission in detector code, no hardcoded thresholds in Python, no full-screen processing.
+- **Complexity:** L–M.
+- **Acceptance (live):** during controlled damage intake and healing, `health_fill_fraction` tracks visible globe depletion/refill and `health_low` toggles only after configured hysteresis, with no chatter around boundary values.
+
+### F-DET-6 — Revive-screen detector
+
+- **Purpose:** Detect player-death revive UI and provide an immediate terminal condition for combat (`character_dead`).
+- **Layer:** d4_bot detector wiring (`src/d4_bot/detectors/`) using framework template detection.
+- **Origin:** New for M1 failure-mode handling.
+- **Surface (spec):** `ReviveScreenDetector(config: dict)` implementing the framework detector interface.
+- **Method:** template match on a stable revive-screen element within configured ROI; optional multi-template support for localized or seasonal UI variants.
+- **Runtime config (combat detector YAML):**
+  - `revive_screen_roi: [x, y, w, h]` — named ROI resolved via `rois.yaml`.
+  - `revive_screen_templates: list[str]` — one or more template asset paths.
+  - `revive_screen_threshold: float` — minimum match score.
+  - `revive_screen_hysteresis_ticks: int` — debounce so transient overlays do not false-trigger death.
+  - `revive_screen_cadence: int` — detector cadence.
+- **Outputs:**
+  - `revive_visible: bool` — debounced death-screen presence.
+  - `revive_score: float` — best raw score over active templates.
+  - `revive_frame_id: int` — origin frame for state staleness checks.
+- **Do-NOT guardrails:** no auto-revive behavior in detector; detector only reports state.
+- **Complexity:** L.
+- **Acceptance (live and replay):** revive UI is reliably detected when dead, absent during normal HUD operation, and remains stable under transient combat overlays.
 
 ---
 
