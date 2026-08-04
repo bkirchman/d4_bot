@@ -271,6 +271,68 @@ Acceptance: scripts/verify_phase_4b.py per BUILD_PLAN.md (live, operator
 y/n). This phase's acceptance is the project milestone gate.
 ```
 
+### B-5a — Phase 5a: Combat detection
+
+```
+Task: Execute Phase 5a of BUILD_PLAN.md exactly as written. Read BUILD_PLAN.md
+"Phase 5a" and FEATURE_SPECS.md sections F-DET-4, F-DET-5, F-DET-6,
+F-DIAG-5, and the GameState extension details before writing anything.
+
+Guardrails for this phase:
+- Implement the new detector configs and the NEW tuner script
+  scripts/diag_combat_tuner.py. Do not substitute scripts/diag_detector_tuner.py.
+- Enemy presence detection is health-bar PRESENCE on targeting UI. No monster
+  body detection and no YOLO combat detector.
+- Health-globe detection outputs fill fraction and low-health verdict only;
+  potion logic stays out of detector classes.
+- Revive-screen detection reports presence only; no auto-revive behavior.
+- Extend GameState additively; preserve existing fields and semantics.
+- Operator measurement task (verbatim): The F-DIAG-4 measurement task is
+  reframed: capture normal, elite, and boss bars and identify the stable
+  invariant across all three, rather than identifying distinguishing features.
+
+Commit gates: after creating each file, immediately git add and git
+commit that file alone with a descriptive message before moving to the
+next. Do not batch commits. This protects against session-level reverts
+losing work (learned the hard way in Phase 3).
+
+Acceptance: implement scripts/verify_phase_5a.py per BUILD_PLAN.md and make it
+pass for replay checks; leave live y/n checks to me.
+```
+
+### B-5b — Phase 5b: Combat processor
+
+```
+Task: Execute Phase 5b of BUILD_PLAN.md exactly as written. Read BUILD_PLAN.md
+"Phase 5b" and FEATURE_SPECS.md sections F-CBT-1, F-CBT-2, F-CBT-3 before
+writing anything.
+
+Guardrails for this phase:
+- F-CBT-2 is loadout rotation with gate fields; F-CBT-3 is run_combat.py.
+  Do not swap them.
+- CombatProcessor is synchronous FrameProcessor logic only: no threads,
+  asyncio, timers, or sleeps.
+- All timing verdicts are latency-aware using capture.latency_frames or
+  injected latency_frames; no timing literals in logic.
+- Combat entry is combat-only for M1 (navigation disabled) and reports
+  terminal statuses explicitly.
+- Build loadout schema with gate fields now; v1 defaults may remain gate:none
+  unless acceptance evidence requires otherwise.
+
+Commit gates: after creating each file, immediately git add and git
+commit that file alone with a descriptive message before moving to the
+next. Do not batch commits. This protects against session-level reverts
+losing work (learned the hard way in Phase 3).
+
+Acceptance: scripts/verify_phase_5b.py per BUILD_PLAN.md with this acceptance
+criteria verbatim: Combat-only entry script; character parked in a spawn-active
+area with the M1 loadout. Pass = across three consecutive sessions: every
+spawned normal enemy engaged and killed; sweep finds off-cone enemies;
+combat_clear reached when the area is genuinely clear; a potion fires when
+health drops below threshold; an induced unkillable/obstructed scenario exits
+cleanly with combat_timeout.
+```
+
 ---
 
 ## Section C — Recurring Task Prompts
