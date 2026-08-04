@@ -1,6 +1,11 @@
 type: yolo
 weights: models/nav_arrow/best.pt
 classes: models/nav_arrow/classes.yaml
-confidence_threshold: 0.50
+# Lowered from 0.50 to 0.25 (2026-08-04). The legacy YOLOv5 nav-arrow
+# checkpoint does not fire reliably at 0.50; 0.25 restores usable
+# recall at the cost of accepting low-confidence detections. This is
+# a model-quality workaround, not a tuned value — see QUESTIONS.md
+# retraining debt and ADR-015.
+confidence_threshold: 0.25
 cadence: 2
 device: cuda
