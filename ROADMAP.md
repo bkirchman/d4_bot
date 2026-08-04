@@ -80,7 +80,7 @@ Default order, dependency-driven:
 
 **Sequencing pressure note (unresolved, OD-2):** M4 (inventory) is the most self-contained and demo-able milestone and can jump the queue for video-content cadence without breaking dependencies. The table above is the dependency-clean default; content cadence may reorder M3/M4/M5.
 
-**M1 architecture note (from OD-1 resolution):** scan is a state inside the combat layer — short stick nudges rotate the character's targeting cone through directions, checking the enemy-health-bar ROI after each nudge. Each check must gate on capture latency: the ROI read is only valid latency_frames after the nudge's real-world completion (same frame_id discipline as F-NAV-2). Scan contends with navigation for the left stick, reinforcing M2 (processor composition) as a hard dependency for "pause steering, sweep, resume" flows. M1 pre-planning is banked in COMBAT_MILESTONE.md (scope ruling, state machine, gated-rotation architecture, survival scope, acceptance sketch).
+**M1 architecture note (from OD-1 resolution):** scan is a state inside the combat layer — sweep is continuous stick rotation via ADR-014's burst emitter with programmatically advancing direction, bounded to one revolution, with latency overshoot absorbed by targeting-cone width. Scan contends with navigation for the left stick, reinforcing M2 (processor composition) as a hard dependency for "pause steering, sweep, resume" flows. M1 pre-planning is banked in COMBAT_MILESTONE.md (scope ruling, state machine, gated-rotation architecture, survival scope, acceptance sketch).
 
 Self-restarting run wrapper and minimap position tracking remain deferred exactly as BUILD_PLAN Phase 5+ lists them; they attach to whichever milestone first demands them.
 
@@ -104,6 +104,15 @@ The payoff activity every parity milestone builds toward: the bot farms Tree of 
 
 **Dependencies:** M1 (combat), M2 (composition), M3 (map interaction) at minimum; mount handling (legacy Horse* icons are reference data) is a strong accelerator and gets scoped in FF-1's planning pass. FF-1 activates only via a full planning pass producing BUILD_PLAN phases.
 
+### FF-2 — Minimap threat awareness
+
+Omnidirectional enemy awareness by reading the minimap's red enemy dots and boss/elite icons, converting a blind 360-degree sweep into a directed turn toward a known bearing. An optimization over a working sweep, never a dependency for one.
+
+- Prior art: attempted in game_bot and never made accurate. Recorded as an honest failure, not an untried idea.
+- Split by tractability. Boss and elite icons have distinct shapes and are template-matchable — ADR-015's precedent that shape beats color on the minimap applies directly. Generic red dots are a few pixels with no shape and fail exactly where map terrain is heavily red; they would need background subtraction against the static map, motion differencing, or reads restricted to low-ambient-red regions.
+- May therefore ship in halves: icon bearing detection well before generic dot detection, if generic dots ever prove worth it.
+- Scope note: extends ADR-009's minimap-as-motion-sensor ruling to threat reading. That scope change is part of this feature, not assumed.
+
 ---
 
 ## 5. Halo migration placement
@@ -118,7 +127,7 @@ HALO_MIGRATION.md remains the banked spec (parity-first, inference-only mileston
 - **OD-2 — Ordering pressure.** Dependency cleanliness (table order in §3) vs. video-content cadence (inventory early). Unresolved; revisit when Phase 4 nears completion.
 - **OD-3 — Grid-navigation framework promotion.** Does menu-grid cursor navigation enter `bot_framework/contrib/` at M4, or stay in d4_bot until Halo proves the second consumer? Placement test from ARCHITECTURE applies.
 - **OD-4 — Map-cursor movement approach.** Revive axis-calibration CSV data (as redesigned YAML), re-measure fresh, or attempt closed-loop cursor steering via icon detection feedback? Decided in M3's planning pass.
-- **OD-5 — Parity scope ratification.** The four Proposed scopes in §2 (thin / full / read-first / full) await explicit ruling; treat as accepted defaults if unchallenged by the time each milestone's planning pass begins.
+- **OD-5 — Parity scope ratification.** P-2 (combat) RESOLVED 2026-08-04: ratified FULL under this item's unchallenged-default rule at M1's planning pass. M1 delivers defensive combat (ADR-018); FF-1 delivers area-clear. P-1, P-3, and P-4 remain pending, each ratifying or being challenged at its own milestone's planning pass.
 - **OD-6 — Board composition measurement.** What fraction of a typical whisper board is completable without entering interiors? Two-minute in-game check at the whisper board; determines whether FF-1 v1 (no interior executors) has enough farmable density to demo. Unmeasured.
 - **OD-7 — FF-1 selection input.** Does v1's selection layer read the whisper board/map itself (extends P-4 machinery), or does the operator pre-select targets and the bot only executes? Operator-selects is a legitimate thinner first cut. Undecided.
 
