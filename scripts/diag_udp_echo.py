@@ -79,9 +79,25 @@ def _validate_protocol_shape(payload: Any) -> None:
 
         return
 
+    if set(payload.keys()) == {"hat_x", "hat_y", "hat_duration"}:
+        if int(payload["hat_duration"]) <= 0:
+            raise SystemExit("Invalid payload: hat_duration must be a positive integer")
+        return
+
+    if set(payload.keys()) == {"move_x", "move_y", "move_duration"}:
+        if int(payload["move_duration"]) <= 0:
+            raise SystemExit("Invalid payload: move_duration must be a positive integer")
+        return
+
+    if set(payload.keys()) == {"trigger", "trigger_duration"}:
+        if int(payload["trigger_duration"]) <= 0:
+            raise SystemExit("Invalid payload: trigger_duration must be a positive integer")
+        return
+
     raise SystemExit(
         "Invalid payload: only single-packet self-releasing protocol shapes are allowed here; "
-        "expected button_N + button_N_duration"
+        "expected one of: button_N + button_N_duration, hat_x + hat_y + hat_duration, "
+        "move_x + move_y + move_duration, trigger + trigger_duration"
     )
 
 
