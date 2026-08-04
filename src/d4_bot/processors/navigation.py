@@ -185,6 +185,10 @@ class NavigationProcessor(FrameProcessor):
         self._prev_state = state
         self._update_stale_ticks_metric(frame.frame_id, state)
 
+        # F-NAV-1 arrival requires consecutive lost-guide ticks; any visible guide clears streak.
+        if state.nav_arrows:
+            self._nav_lost_started_frame_id = None
+
         # Phase 4b seam: stuck-recovery integration is intentionally omitted in Phase 4a.
         self._phase4b_stuck_recovery_seam(state, state_diff)
 
