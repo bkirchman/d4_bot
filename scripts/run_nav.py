@@ -28,6 +28,7 @@ REQUIRED_NAV_CONFIG_KEYS = (
     "stick_magnitude",
     "search_grace_ticks",
     "arrival_confirm_ticks",
+    "nav_arrow_only_arrival_backstop_ticks",
     "recent_movement_window_ticks",
     "emission_interval_ms",
     "burst_duration_ms",
@@ -127,6 +128,8 @@ def main() -> int:
 
             if args.verbose and (runtime_ticks % 30 == 0):
                 nav_arrows_count = len(getattr(nav_arrow_detector, "last_result", []))
+                latest_state = processor.latest_state
+                pin_visible = bool(latest_state.pin_visible) if latest_state is not None else False
                 nav_guide_lost_frame_id = processor.nav_guide_lost_frame_id
                 frames_since_guide_lost = (
                     frame.frame_id - nav_guide_lost_frame_id + 1
@@ -137,6 +140,10 @@ def main() -> int:
                     f"[f={frame.frame_id}] "
                     f"state={processor.nav_state.name} "
                     f"nav_arrows={nav_arrows_count} "
+                    f"pin_visible={pin_visible} "
+                    f"both_lost={processor.both_lost_ticks} "
+                    f"arrow_lost={processor.nav_arrow_lost_ticks} "
+                    f"acquired={processor.target_acquired} "
                     f"last_sig_change_f={processor.last_significant_change_frame_id} "
                     f"stale_ticks={processor.stale_ticks_since_non_stale_detection} "
                     f"frames_since_guide_lost={frames_since_guide_lost} "
@@ -160,6 +167,7 @@ def main() -> int:
     print(
         f"[f={terminal_frame_id}] TERMINAL "
         f"status={processor.terminal_status} "
+        f"via_backstop={processor.arrival_via_backstop} "
         f"bursts_emitted={bursts_emitted} "
         f"runtime_ticks={runtime_ticks}"
     )
