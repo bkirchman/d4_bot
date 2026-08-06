@@ -47,6 +47,19 @@
    `millis()`, pushing out the expiry deadline — but protocol.md does not
    document it. Fix in two places: correct ADR-014's citation, and add the
    supersede semantics to protocol.md §3.2 so the doc matches the firmware.
+- **FrameRecorder causes visible movement stutter during live runs.** With
+   `--record` enabled, the character visibly stops and starts at the emission
+   cadence; without it, motion is continuous and measured send intervals are
+   196–204 ms against a 200 ms target with zero gaps over 400 ms.
+   `navigation.yaml` ships `record_every_n: 1` and `record_jpeg_quality: 90`,
+   so the loop performs a full-resolution JPEG encode every frame
+   synchronously. This does not reduce the frame count but delays the moment
+   UDP packets leave, letting the firmware timer expire between bursts.
+   Accepted for now — recording is a diagnostic mode, not normal operation.
+   Fix options: raise `record_every_n`, lower `record_jpeg_quality`, or move
+   encoding off the hot path. Note that Phase 4a.1's latency-discipline audit
+   requires a recorded run, so this needs resolving before that audit is
+   meaningful. Related to RB-6.
 - **Map screen occludes both arrival signals.** Opening the in-game map hides
    the minimap and the on-screen nav arrows simultaneously, so
    NavigationProcessor reads it as both-signals-lost and fires `arrived` within
