@@ -197,6 +197,10 @@ class NavigationProcessor(FrameProcessor):
         return self._arrival_via_backstop
 
     @property
+    def latest_state(self) -> GameState | None:
+        return self._prev_state
+
+    @property
     def status(self) -> str:
         return self._terminal_status or "running"
 
