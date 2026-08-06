@@ -1,4 +1,4 @@
-# BUILD_PLAN.md — d4_bot
+﻿# BUILD_PLAN.md — d4_bot
 
 **Status:** Execution order authority. Phases run in sequence; a phase is *done* only when its Definition of Done is met.
 **Session sizing:** Estimates are in Copilot work sessions (~3–4 hours of your split-up working time). Phases are sized so one phase ≈ one to three sessions.
@@ -131,6 +131,8 @@ Capture + UDP are already proven on this rig via diablo_bot, so this phase is wi
 - Marker pinned across open ground (no obstacles), ~20–30 s of travel: character follows the guide and stops in `ARRIVED` when the guide vanishes at the destination; script exits cleanly reporting the terminal status. Three consecutive successes.
 - Guide-lost handling: unpin the marker mid-run → processor enters `SEARCHING`, holds its grace period, then terminates with `guide_lost` rather than wandering (y/n).
 - Guide-lost handling: unpin the marker mid-run → processor enters `SEARCHING`, holds its grace period, then terminates `arrived` with `via_backstop=True` after `nav_arrow_only_arrival_backstop_ticks` rather than `guide_lost` (y/n). See ADR-021.
+- The mid-run-unpin acceptance case above is deferred until screen-mode detection lands; see the deferred technical-debt item in [QUESTIONS.md](QUESTIONS.md).
+- Live acceptance covers the remaining Phase 4a.1 cases.
 - Latency discipline spot-check: run with `--record`; the verify script inspects the action log + frames to confirm no steering action was emitted within `latency_frames` + burst-duration ticks of the previous action. **[replay-checkable from the recording]**
 - **Pre-run gates:** `configs/navigation.yaml` populated with concrete tuned values (no factory defaults); `move_duration` in `buttons.yaml` verified via `diag_udp_echo.py` — the character visibly moves in the intended direction for the intended duration.
 
