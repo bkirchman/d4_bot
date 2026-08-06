@@ -51,6 +51,9 @@ class NavigationProcessor(FrameProcessor):
         self._character_anchor_y = int(_require_config_key(config, "character_anchor_y"))
         self._search_grace_ticks = int(_require_config_key(config, "search_grace_ticks"))
         self._arrival_confirm_ticks = int(_require_config_key(config, "arrival_confirm_ticks"))
+        self._nav_arrow_only_arrival_backstop_ticks = int(
+            _require_config_key(config, "nav_arrow_only_arrival_backstop_ticks")
+        )
         self._recent_movement_window_ticks = int(_require_config_key(config, "recent_movement_window_ticks"))
         self._emission_interval_ms = int(_require_config_key(config, "emission_interval_ms"))
         self._burst_duration_ms = int(_require_config_key(config, "burst_duration_ms"))
@@ -70,6 +73,15 @@ class NavigationProcessor(FrameProcessor):
             raise ValueError("navigation config search_grace_ticks must be positive")
         if self._arrival_confirm_ticks <= 0:
             raise ValueError("navigation config arrival_confirm_ticks must be positive")
+        if self._nav_arrow_only_arrival_backstop_ticks <= 0:
+            raise ValueError("navigation config nav_arrow_only_arrival_backstop_ticks must be positive")
+        if self._nav_arrow_only_arrival_backstop_ticks <= self._arrival_confirm_ticks:
+            raise ValueError(
+                "navigation config nav_arrow_only_arrival_backstop_ticks must be greater than "
+                "arrival_confirm_ticks "
+                f"(nav_arrow_only_arrival_backstop_ticks={self._nav_arrow_only_arrival_backstop_ticks}, "
+                f"arrival_confirm_ticks={self._arrival_confirm_ticks})"
+            )
         if self._recent_movement_window_ticks <= 0:
             raise ValueError("navigation config recent_movement_window_ticks must be positive")
         if self._emission_interval_ms <= 0:
@@ -123,6 +135,10 @@ class NavigationProcessor(FrameProcessor):
         self._last_emission_stale_reuse = False
         self._last_skip_emission_frame_id: int | None = None
         self._last_skip_emission_stale_ticks: int | None = None
+        self._both_lost_ticks: int = 0
+        self._nav_arrow_lost_ticks: int = 0
+        self._target_acquired: bool = False
+        self._arrival_via_backstop: bool = False
 
     @property
     def nav_state(self) -> NavigationState:
@@ -165,6 +181,22 @@ class NavigationProcessor(FrameProcessor):
         return self._last_skip_emission_stale_ticks
 
     @property
+    def both_lost_ticks(self) -> int:
+        return self._both_lost_ticks
+
+    @property
+    def nav_arrow_lost_ticks(self) -> int:
+        return self._nav_arrow_lost_ticks
+
+    @property
+    def target_acquired(self) -> bool:
+        return self._target_acquired
+
+    @property
+    def arrival_via_backstop(self) -> bool:
+        return self._arrival_via_backstop
+
+    @property
     def status(self) -> str:
         return self._terminal_status or "running"
 
@@ -192,11 +224,17 @@ class NavigationProcessor(FrameProcessor):
         # Phase 4b seam: stuck-recovery integration is intentionally omitted in Phase 4a.
         self._phase4b_stuck_recovery_seam(state, state_diff)
 
-        if self._state is NavigationState.SEARCHING:
-            return self._tick_searching(frame, state)
+        self._update_arrival_counters(state)
 
         if self._state is NavigationState.ARRIVED:
             return None
+
+        if (not self._in_pre_effect_window(frame.frame_id)) and self._target_acquired:
+            if self._try_arrival():
+                return None
+
+        if self._state is NavigationState.SEARCHING:
+            return self._tick_searching(frame, state)
 
         action = self._maybe_emit_on_cadence(frame, state, services)
 
@@ -218,10 +256,21 @@ class NavigationProcessor(FrameProcessor):
             self._state = NavigationState.STEERING
             self._search_started_frame_id = None
             self._nav_lost_started_frame_id = None
+            self._both_lost_ticks = 0
+            self._nav_arrow_lost_ticks = 0
             return None
 
         if self._search_started_frame_id is None:
             self._search_started_frame_id = frame.frame_id
+            return None
+
+        # Keep searching alive after target acquisition so the nav-arrow-only backstop
+        # can fire. With search_grace_ticks=24 and backstop=300, unsuppressed guide_lost
+        # would terminate 276 ticks before the backstop and make it dead code.
+        if (
+            self._target_acquired
+            and self._nav_arrow_lost_ticks < self._nav_arrow_only_arrival_backstop_ticks
+        ):
             return None
 
         if (frame.frame_id - self._search_started_frame_id) >= self._search_grace_ticks:
@@ -232,13 +281,6 @@ class NavigationProcessor(FrameProcessor):
     def _handle_missing_nav_guide(self, frame: StampedFrame) -> Optional[Action]:
         if self._nav_lost_started_frame_id is None:
             self._nav_lost_started_frame_id = frame.frame_id
-
-        nav_lost_ticks = (frame.frame_id - self._nav_lost_started_frame_id) + 1
-        if self._has_recent_burst_context(frame.frame_id):
-            if nav_lost_ticks >= self._arrival_confirm_ticks:
-                self._state = NavigationState.ARRIVED
-                self._terminal_status = "arrived"
-            return None
 
         self._state = NavigationState.SEARCHING
         self._search_started_frame_id = frame.frame_id
@@ -288,10 +330,25 @@ class NavigationProcessor(FrameProcessor):
             self._last_significant_change_frame_id + self._latency_frames + PRE_EFFECT_SETTLING_TICKS
         )
 
-    def _has_recent_burst_context(self, frame_id: int) -> bool:
-        if self._last_burst_emitted_frame_id is None:
-            return False
-        return (frame_id - self._last_burst_emitted_frame_id) <= self._recent_movement_window_ticks
+    def _update_arrival_counters(self, state: GameState) -> None:
+        nav_lost = not state.nav_arrows
+        pin_lost = not state.pin_visible
+        if not nav_lost or not pin_lost:
+            self._target_acquired = True
+        self._nav_arrow_lost_ticks = self._nav_arrow_lost_ticks + 1 if nav_lost else 0
+        self._both_lost_ticks = self._both_lost_ticks + 1 if (nav_lost and pin_lost) else 0
+
+    def _try_arrival(self) -> bool:
+        if self._both_lost_ticks >= self._arrival_confirm_ticks:
+            self._state = NavigationState.ARRIVED
+            self._terminal_status = "arrived"
+            return True
+        if self._nav_arrow_lost_ticks >= self._nav_arrow_only_arrival_backstop_ticks:
+            self._state = NavigationState.ARRIVED
+            self._terminal_status = "arrived"
+            self._arrival_via_backstop = True
+            return True
+        return False
 
     def _maybe_emit_on_cadence(
         self,
