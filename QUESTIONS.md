@@ -152,8 +152,8 @@ Items 8–11 cleared to TROUBLESHOOTING.md / CHEATSHEET.md on 2026-08-03.
     recorder when the operator tags segments with a keypress. Not a
     today problem; a "before we care about regressions" problem.
 
-- ~~**Overlapping-burst emission (ADR-014) has downstream implications for Phase 4b stuck detection.** F-NAV-3's stuck definition currently keys on "movement burst active or just completed" — an anchor that doesn't exist under continuous emission. Proposed replacement anchor is banked in F-NAV-3's impact bullet. Confirm the replacement wording and add unit tests during Phase 4b implementation session, not before.~~
-   **Resolved 2026-08-06:** Closed by ADR-023 after Phase 4b planning measurements on 2026-08-06. Stuck definition now uses a proportional raw-motion window anchored on nav_arrows presence in GameState, replacing the superseded "just completed" anchor.
+- ~~**Overlapping-burst emission (ADR-014) has downstream implications for Phase 4b stuck detection.** F-NAV-3's stuck definition currently keys on "movement burst active or recently completed" — an anchor that doesn't exist under continuous emission. Proposed replacement anchor is banked in F-NAV-3's impact bullet. Confirm the replacement wording and add unit tests during Phase 4b implementation session, not before.~~
+   **Resolved 2026-08-06:** Closed by ADR-023 after Phase 4b planning measurements on 2026-08-06. Stuck definition now uses a proportional raw-motion window anchored on nav_arrows presence in GameState, replacing the superseded legacy completion anchor.
 
 ## Resolved
 - ~~**GC573 returns black frames unless another application has the device open (OPEN).**~~ **Resolved 2026-08-06:** Misdiagnosis. The device emits 83 black frames (~1395 ms) after open and then runs clean at 60 fps; OBS was occupying that window, not initialising the stream. Every probe had discarded only 10 frames. Fixed by capture warm-up per ADR-022. The OBS workaround is withdrawn — it also halved the frame rate through device sharing.
