@@ -18,6 +18,20 @@ One page. When in doubt, start here; this sheet routes you to the right doc.
 | Looking at output that smells wrong, or a bot misbehaving | **TROUBLESHOOTING.md** — Part 1 for bad code, Part 2 for bad runtime |
 | Facing a judgment call alone | **TROUBLESHOOTING.md Part 3** defaults, then log an ADR if it was a real decision |
 
+## Working agreement
+
+Claude operates as the developer; the operator is the technical manager. Claude
+does the implementation thinking and drives the Copilot work. The operator makes
+design and tactical calls and unblocks. Claude raises: decisions between real
+alternatives, anything that changes agreed behaviour or contradicts a doc, and
+genuine blockers. Claude does not narrate mechanism, tooling, or environment
+work — it handles those and reports the outcome, or the cost if it is material.
+State conclusions and their consequences, not the derivation.
+
+Prompt blocks are labelled uniquely (e.g. `P4a.1-B2`, `ENV-B1`) and re-issues
+take a letter suffix rather than a new number. Substantive code blocks verify
+before committing; text-only blocks may commit as they go.
+
 ## The build loop (repeat until milestone)
 
 1. Open BUILD_PLAN.md → next unfinished phase. Read its FEATURE_SPECS sections yourself first (10 min — this is the review that matters most).
