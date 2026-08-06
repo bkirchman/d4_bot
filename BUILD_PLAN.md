@@ -145,7 +145,22 @@ Capture + UDP are already proven on this rig via diablo_bot, so this phase is wi
 	Commits: `0e8a585` (config tuning), `5bdfb1e` (processor amendment),
 	`f5cc93c` (test coverage), `e4cb93d` and `57cf194` (telemetry).
 	See ADR-021 for the arrival-discriminator decisions taken during
-	implementation. Live acceptance not yet run.
+	implementation. Live acceptance: accepted by operator 2026-08-06 with caveats. Two consecutive
+	runs terminated `arrived` via the compound path (`via_backstop=False`) with
+	continuous emission and no SEARCHING stalls. A third run terminated `arrived`
+	via the backstop after a ~290-tick nav_arrow outage; operator attributed this
+	to marker siting — the nav arrow pointed to a waypoint far from the pin — not
+	to detector failure. The no-marker case (expected `guide_lost`) was not run.
+	The mid-run-unpin case remains deferred per ADR-021 and the map-occlusion item
+	in QUESTIONS.md.
+	Fixes landed during acceptance:
+	- Capture warm-up (ADR-022, bot_framework) — the loop had been running at a
+	  real 30 fps against a configured 60 because the OBS workaround shared the
+	  capture device. All timing values were being applied at double their
+	  intended wall-clock duration until this was fixed.
+	- `stale_direction_tolerance_ticks` raised 3 -> 60, with the validation ceiling
+	  raised 30 -> 120, to bridge multi-second nav_arrow outages in visually busy
+	  terrain.
 
 Scope: implement a minimap-pin detector using OpenCV template matching. Wire pin_visible / pin_position into GameState. Amend NavigationProcessor's arrival heuristic to require both nav_arrows AND pin lost per Interpretation A (single both_lost counter). Tune arrival_confirm_ticks from 120 back to 24. See ADR-015.
 
