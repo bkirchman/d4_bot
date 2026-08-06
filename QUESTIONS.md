@@ -1,4 +1,4 @@
-# QUESTIONS.md — d4_bot open items and deferred debt
+﻿# QUESTIONS.md — d4_bot open items and deferred debt
 
 ## Environment hygiene (do before or during Phase 4a)
 1. pytest missing from any declared dev dep — install manually in every
@@ -28,6 +28,18 @@
 7. In-place YOLOv5→YOLOv8 conversion attempted once and failed
    (head architecture divergence). Retraining is the only clean path.
    Applies to Halo H0 too — gen3's models are v5-era.
+- **Map screen occludes both arrival signals.** Opening the in-game map hides
+   the minimap and the on-screen nav arrows simultaneously, so
+   NavigationProcessor reads it as both-signals-lost and fires `arrived` within
+   `arrival_confirm_ticks` (400 ms). There is no screen-mode detection to
+   distinguish an occluded HUD from a genuine signal loss. Consequences: (a)
+   any human opening the map mid-run false-arrives the bot; (b) Phase 4a.1's
+   mid-run-unpin acceptance case cannot be executed as written, since clearing
+   a pin requires the map screen. Case deferred, not waived. ADR-020 already
+   names screen-mode detection as the one shared-infrastructure exception to
+   grow-on-demand detection; this is that dependency surfacing early. Resolve
+   when screen-mode detection lands, then restore the unpin acceptance case.
+   Related to ADR-021 and OD-2.
 - **Arrival vs mid-run-unpin discriminator.** `pin_position` travels from the
    minimap border to the interior as the character approaches; a pin vanishing
    from the border is an unpin, one vanishing near the interior is a true
