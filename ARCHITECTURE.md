@@ -562,6 +562,40 @@ On timeout the framework logs loudly and proceeds rather than raising. A legitim
 - **Discard a fixed configured frame count.** Simpler and cannot be fooled by a black game screen. Rejected because it hardcodes a rig-specific measurement into a timing-sensitive path, and 83 frames is an observation about this card today rather than a contract.
 - **Raise on warm-up timeout.** Rejected: a black startup screen is recoverable and a hard failure on an ambiguous signal costs more than it protects.
 - **Leave the OBS workaround in place.** Rejected: it halves the frame rate, which silently invalidates every latency and cadence value in the system.
+
+### ADR-023 — Stuck detection is a proportional motion window, not a consecutive-tick streak
+
+**Date:** 2026-08-06
+**Status:** Accepted.
+
+**Context.** Phase 4b planning measured minimap_motion across five live segments on the rig at true 60 fps, logged per-frame via diag_detector_tuner. Findings:
+
+- Standing still reads a changed fraction around 0.00003. Walking reads around 0.37. Four orders of magnitude of separation; threshold placement is not a sensitive parameter (moving changed_fraction from 0.015 to 0.05 changes the wall-segment verdict by 0.2%).
+- Enemy icons and boss VFX do not meaningfully lift the floor. Standing amid an active mob pack reads below threshold on 99.8% of frames; standing under an attacking boss on 98.3%, with occasional isolated spikes and nothing sustained. The concern that minimap icon churn would mask stuck is retired.
+- Pressing into a wall does NOT produce a clean stop. D4 resolves angled wall collision by sliding, so the segment is bimodal: it alternates frame to frame between roughly 0.40 (translating as fast as a full walk) and roughly 0.008 (pinned). 67% of frames read not-moving, interleaved rather than contiguous.
+- The discriminating statistic is the proportion, not the streak. Over the measured segments, walking never produced more than 1 consecutive not-moving frame; the wall segment produced runs up to 139.
+
+The consecutive-tick definition assumes a clean stop. Real stuck on this rig stutters, and any slip frame resets a streak counter to zero. Additionally, the debouncing that makes character_moving useful for steering actively hides stuck: in the wall segment the debounced value reported moving on substantially more frames than the raw reading did.
+
+**Decision.**
+1. Stuck is: nav_arrows present in GameState, AND the pre-effect window has elapsed, AND at least `stuck_quiet_fraction` of the last `stuck_window_ticks` ticks read not-moving. Both keys from navigation.yaml.
+2. The proportion is computed over the RAW motion reading, not the debounced one. GameState gains an additive field carrying the raw reading alongside the existing debounced character_moving; StuckMonitor consumes the raw field, and no other consumer changes.
+3. The anchor for "the bot is trying to move" is nav_arrows presence in GameState, not the processor's own emission bookkeeping. This supersedes the `stuck_movement_window_ticks` anchor proposed in ADR-014's consequences and in F-NAV-3's impact bullet; that key is not created. Rationale: processors key on GameState by ARCHITECTURE §7, the signal is directly observable in a recording, and rung 2 of the recovery ladder re-steers against the guide bearing - with no arrow there is no bearing, so arrow presence is a precondition for the ladder to function at all, not merely a convenient proxy.
+4. The recovery ladder resets to rung 1 on confirmed movement as F-NAV-3 already specifies. A per-run `stuck_event_budget` (config) bounds total stuck events across a run; exhausting it terminates `stuck_unrecoverable` regardless of how many resets occurred. This is the termination guarantee: sliding along a wall is sometimes a legitimate escape and cannot be classified as failure, so the budget bounds the loop rather than trying to judge individual recoveries.
+5. Verdict ordering in NavigationProcessor.process: arrival, then stuck, then SEARCHING, then emission. Stuck remains live during the nav_arrow_only_arrival_backstop_ticks window - a bot walking into a wall through a nav_arrow outage should recover, not wait out the backstop.
+
+**Consequences.**
+- F-NAV-3's stuck definition is rewritten. `stuck_ticks` is replaced by `stuck_window_ticks` and `stuck_quiet_fraction`.
+- GameState gains one additive field for the raw motion reading; F-GS-1 is amended. Existing fields and semantics are unchanged.
+- The Phase 4b seam call in navigation.py moves to sit after arrival evaluation. This is a reordering of an existing call, not a rework of arrival logic, and B-4b authorizes it explicitly.
+- Steady sliding along a long smooth wall remains undetectable by this mechanism, because it is genuine translation. Real geometry catches and releases, which is what makes the proportional window work. The residual case is bounded by the arrival backstop. A true progress signal would require position tracking, out of scope per ADR-009.
+- Threshold tuning for minimap_motion is not required by this decision. The measured separation is wide enough that changed_fraction: 0.015 stands.
+
+**Alternatives considered.**
+- **Consecutive-tick streak with a longer window.** Rejected: no window length survives frame-to-frame interleaving; a single slip frame zeroes the count.
+- **Reading the debounced character_moving.** Rejected on measurement: hysteresis biases toward reporting motion and erases the pinned stretches.
+- **Emission-bookkeeping anchor (`stuck_movement_window_ticks`).** Rejected: it required the processor to inspect its own emission history including skipped emissions, added a config key with a derived floor, and violated the GameState-only reading rule for no gain over arrow presence.
+- **Sustained-movement ladder reset, to classify slides as failed recoveries.** Rejected: a slide that clears a corner is a successful recovery, and no available signal distinguishes the two. The attempt budget bounds the loop without requiring the classification.
 ---
 
 *End of ARCHITECTURE.md. Next document: FEATURE_SPECS.md.*
