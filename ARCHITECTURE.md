@@ -534,6 +534,34 @@ backstop was reachable. The backstop was dead code as specified.
     near the interior is a true arrival. It requires live measurement before it
     can be specified.
 
+### ADR-022 — Capture sources warm up before first use; black frames at open are expected
+
+**Date:** 2026-08-06
+**Status:** Accepted.
+
+**Context.** A live navigation session on 2026-08-06 produced black frames from the GC573 through every open variant tried: no settings at all, resolution and fps only, MJPG before resolution, MJPG after resolution, YUY2, and 1280x720. All returned mean 0.0 with a garbage FOURCC. The card was healthy in Device Manager and enumerated correctly. Opening OBS with the GC573 source active made the identical probe return live frames, which was initially read as OBS performing some stream initialisation the framework did not.
+
+That reading was wrong. Measurement showed the device emits exactly 83 black frames — approximately 1395 ms at 60 fps — after open, then delivers live frames with zero subsequent dropouts. The run length was identical across consecutive opens in the same session. OBS was not initialising anything; it was simply occupying the warm-up window while diagnostics ran. Every probe until then had discarded only 10 frames and given up inside that window.
+
+The OBS workaround carried a second cost: sharing the DirectShow device halved the delivered frame rate to a rock-steady 30 fps against a configured 60. The NavigationProcessor computes emission timing from frame_id deltas multiplied by the *configured* fps, so it believed a 12-tick gap was 200 ms when it was really 400 ms — landing exactly on `burst_duration_ms` expiry and producing a visible stop/start at every burst boundary. `latency_frames` and `arrival_confirm_ticks` were likewise being applied at double their intended wall-clock duration.
+
+**Decision.** Capture warm-up becomes a first-class property of `CaptureSource`, alongside `latency_frames`. After opening the device, `AVerMediaCapture` discards frames until the first frame with a non-trivial mean, bounded by `warmup_timeout_ms`. Control does not return to the caller until warm-up completes or the timeout elapses.
+
+`warmup_timeout_ms` is a framework default (3000) overridable in `hardware.yaml`, not a required key — the value is a property of the capture rig, not a decision each game project should have to make, and requiring it would break every existing config including gen3_bot's.
+
+On timeout the framework logs loudly and proceeds rather than raising. A legitimately black game screen at startup (loading, death, cutscene) is indistinguishable from a warm-up failure by this test, and hard-failing a run on that ambiguity is worse than starting with a warning.
+
+**Consequences.**
+- The OBS dependency banked in QUESTIONS.md on 2026-08-06 is withdrawn. It was a misdiagnosis. The QUESTIONS item and the TROUBLESHOOTING runbook entry are corrected rather than deleted, so the reasoning error stays visible.
+- The Phase 4a.1 cold-start failure — NavigationProcessor entering SEARCHING at f=1 and terminating `guide_lost` at f=25 while the YOLO model was still loading — is the same window and is expected to resolve with warm-up.
+- Black frames at open are not a fault and must not be diagnosed as one. The earlier black-frame incident closed as "a transient card fault resolved by restart" was almost certainly this, misattributed.
+- Frame-rate assumptions are now suspect generally. ADR-014's emission model assumes the loop runs at the configured fps; nothing verifies that. Banked in QUESTIONS.md as a separate item.
+- Warm-up is a property of the capture source, not of any one game project, so it applies unchanged to the Halo migration.
+
+**Alternatives considered.**
+- **Discard a fixed configured frame count.** Simpler and cannot be fooled by a black game screen. Rejected because it hardcodes a rig-specific measurement into a timing-sensitive path, and 83 frames is an observation about this card today rather than a contract.
+- **Raise on warm-up timeout.** Rejected: a black startup screen is recoverable and a hard failure on an ambiguous signal costs more than it protects.
+- **Leave the OBS workaround in place.** Rejected: it halves the frame rate, which silently invalidates every latency and cadence value in the system.
 ---
 
 *End of ARCHITECTURE.md. Next document: FEATURE_SPECS.md.*
