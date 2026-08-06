@@ -96,8 +96,9 @@ class NavigationProcessor(FrameProcessor):
             raise ValueError("navigation config significant_direction_change_degrees must be positive")
         if self._significant_direction_change_degrees > 180.0:
             raise ValueError("navigation config significant_direction_change_degrees must be <= 180.0")
-        if self._stale_direction_tolerance_ticks < 1 or self._stale_direction_tolerance_ticks > 30:
-            raise ValueError("navigation config stale_direction_tolerance_ticks must be between 1 and 30")
+        # At 60 fps, 120 ticks is 2 seconds of dead reckoning; this ceiling guards against typos causing indefinite blind walking.
+        if self._stale_direction_tolerance_ticks < 1 or self._stale_direction_tolerance_ticks > 120:
+            raise ValueError("navigation config stale_direction_tolerance_ticks must be between 1 and 120")
 
         self._steering_command_factory = commands.get(self._steering_command_name)
         steering_payload = dict(self._steering_command_factory())
