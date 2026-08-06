@@ -171,6 +171,15 @@ Run COPILOT_PROMPTS.md **C-4**'s checklist. Summary of the order that finds it f
 **Fix:** identify and close the competing consumer, then restart the capture session. Standing habit: before any bot session, verify nothing else has the GC573 open.
 **Related:** same root-cause family as exclusive-access black frames — a competing consumer can degrade FPS (shared access) or return black frames entirely (exclusive access held elsewhere).
 
+
+### RB-11 — Black frames despite successful open
+
+**Symptom:** capture opens successfully with correct geometry, but early frames are all black (mean ~0) before live video appears.
+**Cause:** capture-source warm-up window. On this rig, the GC573 emits an initial run of black frames after open (measured as 83 frames, ~1395 ms at 60 fps) and then runs normally.
+**Fix:** discard frames after open until the first live frame (non-trivial mean), bounded by a warm-up timeout. From ADR-022 onward, the framework handles this in capture warm-up before control returns to callers.
+**Do-not:** do not treat black frames within the first ~2 seconds after open as capture-device failure; do not use OBS-open-as-workaround (withdrawn as misdiagnosis); and do not conflate this with RB-8.
+**RB-8 distinction:** RB-11 is transient black warm-up after a successful open; RB-8 is sustained half-rate capture caused by concurrent device sharing.
+
 ### RB-9 — Copilot agent session is running system Python despite a correctly provisioned venv
 
 **Symptom:** Copilot agent session runs code whose imports fail or behaves as if packages are missing, despite a correctly provisioned venv.
