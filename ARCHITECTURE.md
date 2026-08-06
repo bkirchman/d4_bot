@@ -489,6 +489,51 @@ Because the compound signal is much stronger than either alone (probability of b
 - Classifying enemy type by which template matched. Rejected on operator evidence that boss bars churn seasonally and detect poorly.
 - Minimap red-dot reading as the M1 scan mechanism. Deferred to FF-2; it is an optimization over a working sweep, not a substitute for one.
 
+### ADR-021 — Arrival discriminator: target-acquired latch; backstop subsumes guide-lost timeout
+
+**Date:** 2026-08-06
+**Status:** Accepted. Amends ADR-015.
+
+**Context.** Implementing ADR-015's compound-signal arrival required removing
+`_has_recent_burst_context`, a guard ADR-014 had already rendered vacuous under
+continuous emission. Two consequences surfaced that ADR-015 did not anticipate.
+First, with the guard gone, a mid-run unpin and a true arrival are
+indistinguishable from screen state alone - both present as nav_arrows and
+pin_visible vanishing together at an arbitrary location. Second, the guard had
+been capping the arrival path at `recent_movement_window_ticks` (30), which meant
+ADR-015's `nav_arrow_only_arrival_backstop_ticks` (300) could never fire: with
+`search_grace_ticks` at 24, SEARCHING terminated the run 276 ticks before the
+backstop was reachable. The backstop was dead code as specified.
+
+**Decision.**
+1. A `_target_acquired` latch is set on the first tick either signal is present.
+     All arrival evaluation is gated behind it, so a run started with no
+     destination pinned still terminates `guide_lost` after `search_grace_ticks`.
+2. While the latch is set and nav_arrows have been lost fewer than
+     `nav_arrow_only_arrival_backstop_ticks`, SEARCHING does not terminate. The
+     backstop becomes the outer timeout for the whole lost-signal path rather than
+     a parallel one.
+3. Both arrival paths report terminal status `"arrived"`. They are distinguished
+     by an `arrival_via_backstop` flag exposed as a read-only property, so
+     acceptance scripts matching on the terminal string keep working.
+4. Arrival is evaluated before the SEARCHING branch in `process()`, so arrival
+     outranks a guide_lost termination.
+
+**Consequences.**
+- Mid-run unpin now terminates `"arrived"` via the backstop after ~5 seconds
+    rather than `"guide_lost"`. Phase 4a's unpin acceptance bullet is amended
+    accordingly in BUILD_PLAN.md.
+- `recent_movement_window_ticks` is retained in `navigation.yaml` and in the
+    NavigationProcessor constructor but is no longer consumed by arrival logic.
+- Arrival counters are updated every non-terminal tick including inside the
+    pre-effect window; it is the verdict that is latency-gated, not the
+    measurement. No latency arithmetic exists inside the counters themselves.
+- A real discriminator remains available and is banked in QUESTIONS.md:
+    `pin_position` travels from minimap border to interior as the character
+    approaches, so a pin vanishing from the border is an unpin and one vanishing
+    near the interior is a true arrival. It requires live measurement before it
+    can be specified.
+
 ---
 
 *End of ARCHITECTURE.md. Next document: FEATURE_SPECS.md.*
