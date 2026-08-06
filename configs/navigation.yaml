@@ -15,7 +15,8 @@
   significant_direction_change_degrees: 15.0
   stale_direction_tolerance_ticks: 3
   search_grace_ticks: 24
-  arrival_confirm_ticks: 12
+  arrival_confirm_ticks: 24
+  nav_arrow_only_arrival_backstop_ticks: 300
   recent_movement_window_ticks: 30
   history_capacity: 512
   target_class_name: Navigation
