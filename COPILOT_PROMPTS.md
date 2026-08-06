@@ -252,19 +252,23 @@ FEATURE_SPECS.md section F-NAV-3, plus the F-NAV-1 state machine, first.
 
 Guardrails for this phase:
 - New file recovery.py: StuckMonitor and RecoveryLadder per F-NAV-3 signatures.
-  Stuck requires ALL of: movement burst active or just completed, pre-effect
-  window elapsed, character_moving False for stuck_ticks consecutive ticks.
-  All tick counts from config.
+  Stuck requires ALL of: nav_arrows present in GameState, pre-effect window
+  elapsed, and at least stuck_quiet_fraction of the last stuck_window_ticks
+  reading not-moving in the raw motion field. All tick counts from config.
+- StuckMonitor reads the raw motion field from GameState and never the
+  debounced character_moving field.
 - The ladder is exactly three rungs (reverse, offset-angle re-approach via
-  the steering helper — movement direction, never camera — and B escape),
-  each with cooldown and max attempts from config, escalating in order,
-  resetting to rung 1 after any confirmed-movement window. Rung exhaustion =
-  terminal status stuck_unrecoverable; the processor stops cleanly. Do NOT
-  add a re-pin rung, a random-walk rung, or an auto-restart — restart is the
-  operator's job.
-- navigation.py changes are ADDITIVE: wire the STUCK_RECOVERY state in;
-  do not rework steering, PRE_EFFECT, or arrival logic. If you believe
-  steering must change to accommodate recovery, stop and say so.
+  the steering helper — movement direction, never camera — and B escape), plus
+  terminal fail. Do NOT add a re-pin rung, a random-walk rung, or an
+  auto-restart — restart is the operator's job.
+- Ladder behavior includes the per-run stuck_event_budget cap and resets to
+  rung 1 on confirmed movement per spec.
+- Verdict ordering in navigation.py process must be: arrival, then stuck,
+  then SEARCHING, then emission.
+- navigation.py changes are ADDITIVE: wire the STUCK_RECOVERY state in, and
+  explicitly MOVE the existing _phase4b_stuck_recovery_seam call to sit after
+  arrival evaluation. Change nothing else in steering, PRE_EFFECT, or arrival
+  logic. If you believe any of those must change, stop and say so.
   
 
 Acceptance: scripts/verify_phase_4b.py per BUILD_PLAN.md (live, operator
