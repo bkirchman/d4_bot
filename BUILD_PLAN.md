@@ -130,14 +130,20 @@ Capture + UDP are already proven on this rig via diablo_bot, so this phase is wi
 **Acceptance — `verify_phase_4a.py` [live]:**
 - Marker pinned across open ground (no obstacles), ~20–30 s of travel: character follows the guide and stops in `ARRIVED` when the guide vanishes at the destination; script exits cleanly reporting the terminal status. Three consecutive successes.
 - Guide-lost handling: unpin the marker mid-run → processor enters `SEARCHING`, holds its grace period, then terminates with `guide_lost` rather than wandering (y/n).
+- Guide-lost handling: unpin the marker mid-run → processor enters `SEARCHING`, holds its grace period, then terminates `arrived` with `via_backstop=True` after `nav_arrow_only_arrival_backstop_ticks` rather than `guide_lost` (y/n). See ADR-021.
 - Latency discipline spot-check: run with `--record`; the verify script inspects the action log + frames to confirm no steering action was emitted within `latency_frames` + burst-duration ticks of the previous action. **[replay-checkable from the recording]**
 - **Pre-run gates:** `configs/navigation.yaml` populated with concrete tuned values (no factory defaults); `move_duration` in `buttons.yaml` verified via `diag_udp_echo.py` — the character visibly moves in the intended direction for the intended duration.
 
 ### Phase 4a.1 — Reliability pass: minimap-pin detection and compound-signal arrival
 
 **Status record:**
-- **Part 1 (minimap-pin detector, F-DET-3):** Complete. Commits `6e4def0` and `4620c75`. Date: 2026-07-18.
-- **Part 2 (compound-signal arrival amendment):** NOT IMPLEMENTED — `navigation.py` contains no pin state reference and `configs/navigation.yaml` has no `nav_arrow_only_arrival_backstop_ticks` key. Phase 4a.1 remains open.
+- **Part 1 (minimap-pin detector, F-DET-3):** Complete. Commits `6e4def0` and
+	`4620c75`. Date: 2026-07-18.
+- **Part 2 (compound-signal arrival amendment):** Complete. Date: 2026-08-06.
+	Commits: `0e8a585` (config tuning), `5bdfb1e` (processor amendment),
+	`f5cc93c` (test coverage), `e4cb93d` and `57cf194` (telemetry).
+	See ADR-021 for the arrival-discriminator decisions taken during
+	implementation. Live acceptance not yet run.
 
 Scope: implement a minimap-pin detector using OpenCV template matching. Wire pin_visible / pin_position into GameState. Amend NavigationProcessor's arrival heuristic to require both nav_arrows AND pin lost per Interpretation A (single both_lost counter). Tune arrival_confirm_ticks from 120 back to 24. See ADR-015.
 
