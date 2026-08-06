@@ -224,7 +224,24 @@ Acceptance:
 - `d4_bot/scripts/run_combat.py`
 - `d4_bot/scripts/verify_phase_5b.py`
 
-**Acceptance — `verify_phase_5b.py` [live] (verbatim):** Combat-only entry script; character parked in a spawn-active area with the M1 loadout. Pass = across three consecutive sessions: every spawned normal enemy engaged and killed; sweep finds off-cone enemies; combat_clear reached when the area is genuinely clear; a potion fires when health drops below threshold; an induced unkillable/obstructed scenario exits cleanly with combat_timeout.
+**Acceptance — `verify_phase_5b.py` [live] — this is the M1 milestone gate.**
+Character parked in a spawn-active area with the M1 loadout, away from
+dense interactables, no navigation running. Across three consecutive
+sessions:
+- Every spawned normal enemy is engaged and killed.
+- Sweep locates off-cone enemies and re-engages.
+- `combat_clear` is reached when the area is genuinely clear.
+- A boss or elite in range routes via the ADR-020 boss bypass straight
+	to ATTACKING without a preceding sweep.
+- A potion fires when health drops below `potion_threshold`.
+- An induced unkillable or obstructed target exits cleanly with
+	`combat_timeout`.
+- A death exits cleanly with `character_dead`.
+- Latency discipline spot-check via `--record`: no verdict is reached
+	within `latency_frames` of the emission or press it evaluates.
+
+Milestone completion ritual: tag `bot_framework`, record both repos'
+hashes here, refresh CLAUDE.md.
 
 ---
 
