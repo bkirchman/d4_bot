@@ -7,7 +7,12 @@
    yolov5/ultralytics, breaks cv2.imshow in diagnostic scripts.
    Explicitly pin opencv-python (with GUI) in bot_framework [ml].
 3. Copilot agent sessions can silently lose venv context and run system
-   Python. Every session start: verify `python -c "import sys; print(sys.executable)"`.
+   Python. Every session start: verify `python -c "import sys; print(sys.prefix != sys.base_prefix)"`
+   prints True. Matching on executable path is unreliable — VS Code's own
+   install directory is `AppData\Local\Programs\Microsoft VS Code`, which
+   produces a false positive against an `AppData\Local\Programs\Python` pattern.
+   Fresh Copilot sessions do not inherit an activated venv unless the workspace
+   interpreter is set.
 4. YoloDetector should print torch build + CUDA availability at startup
    so environment problems fail loud instead of silently degrading.
 5. yolov5 and pandas are declared in [ml] extra but as transitive deps
@@ -23,6 +28,12 @@
 7. In-place YOLOv5→YOLOv8 conversion attempted once and failed
    (head architecture divergence). Retraining is the only clean path.
    Applies to Halo H0 too — gen3's models are v5-era.
+- **Arrival vs mid-run-unpin discriminator.** `pin_position` travels from the
+   minimap border to the interior as the character approaches; a pin vanishing
+   from the border is an unpin, one vanishing near the interior is a true
+   arrival. Implementing this would restore an honest `guide_lost` verdict for
+   mid-run unpin, which ADR-021 traded away. Requires live measurement of the
+   interior-fraction threshold before it can be specified. Related to OD-6.
 - ~~**Minimap-pin detection as a disambiguation signal for arrival vs
    detector failure.** The current arrival heuristic ("nav arrow
    vanished + recent movement + sustained lost") cannot distinguish
@@ -63,7 +74,6 @@ Items 8–11 cleared to TROUBLESHOOTING.md / CHEATSHEET.md on 2026-08-03.
 
 ## Active debugging
 - ~~Black-frame capture issue.~~ **Resolved 2026-08-03:** transient capture-card/driver fault, cleared by restart. Not a code defect. If it recurs, first suspect is the hardcoded MJPG FOURCC negotiation in AVerMediaCapture._open_capture — OpenCV accepts an unsupported format silently and delivers black frames with valid geometry.
-- **Phase 4a.1 part 2 outstanding (arrival unsafe).** NavigationProcessor does not read pin state; arrival remains single-signal. configs/navigation.yaml has arrival_confirm_ticks: 12, matching neither ADR-015's pre-amendment value (120) nor its target (24), and no backstop key exists. Live navigation runs will false-arrive on nav_arrow dropouts until ADR-015's compound-signal amendment is implemented. Do not run run_nav.py for acceptance until this closes.
 - **Nav-arrow model recall is degraded.** The legacy YOLOv5 nav-arrow
    checkpoint requires confidence_threshold 0.25 to fire reliably;
    configs/detectors/nav_arrow.yaml shipped at 0.50 and the detector
@@ -102,6 +112,7 @@ Items 8–11 cleared to TROUBLESHOOTING.md / CHEATSHEET.md on 2026-08-03.
 - **Overlapping-burst emission (ADR-014) has downstream implications for Phase 4b stuck detection.** F-NAV-3's stuck definition currently keys on "movement burst active or just completed" — an anchor that doesn't exist under continuous emission. Proposed replacement anchor is banked in F-NAV-3's impact bullet. Confirm the replacement wording and add unit tests during Phase 4b implementation session, not before.
 
 ## Resolved
+- ~~**Phase 4a.1 part 2 outstanding (arrival unsafe).** NavigationProcessor does not read pin state; arrival remains single-signal. configs/navigation.yaml has arrival_confirm_ticks: 12, matching neither ADR-015's pre-amendment value (120) nor its target (24), and no backstop key exists. Live navigation runs will false-arrive on nav_arrow dropouts until ADR-015's compound-signal amendment is implemented. Do not run run_nav.py for acceptance until this closes.~~ **Resolved 2026-08-06:** Compound-signal arrival implemented per ADR-015 with the discriminator amendments in ADR-021. arrival_confirm_ticks is 24 and nav_arrow_only_arrival_backstop_ticks is 300. Live acceptance still pending.
 - ~~Arrival heuristic under overlap is brittle to prolonged detector
    dropouts.~~ **Resolved 2026-07-18:** Not previously banked; noting
    here for provenance. Under ADR-014's overlapping-burst emission,
