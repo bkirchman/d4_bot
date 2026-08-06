@@ -28,6 +28,25 @@
 7. In-place YOLOv5→YOLOv8 conversion attempted once and failed
    (head architecture divergence). Retraining is the only clean path.
    Applies to Halo H0 too — gen3's models are v5-era.
+- **Loop frame rate is assumed, never measured.** NavigationProcessor computes
+   emission timing as frame_id delta multiplied by the configured fps from
+   hardware.yaml. Nothing verifies the loop is actually achieving that rate. On
+   2026-08-06 a session ran at a real 30 fps against a configured 60 — every
+   emission interval, latency gate and arrival threshold was applied at double
+   its intended wall-clock duration, and the resulting stop/start motion was
+   initially misattributed to the firmware failing to supersede in-flight move
+   commands. Proposed fix: measure the achieved rate over a rolling window at
+   runtime and warn loudly on sustained divergence from the configured value.
+   Related to RB-6 and ADR-022.
+- **ADR-014 cites protocol.md §3.2 for behaviour that section does not
+   describe.** ADR-014 states that a new `move_duration` packet supersedes a
+   running firmware timer "per protocol.md §3.2 special behavior". §3.2's only
+   special-behavior note concerns when `ack` is emitted. The superseding
+   behaviour is real — verified in arduino_controller_fixed.ino, where the
+   `move_x` and `move_y` handlers both reset `left_stick.start_time` to
+   `millis()`, pushing out the expiry deadline — but protocol.md does not
+   document it. Fix in two places: correct ADR-014's citation, and add the
+   supersede semantics to protocol.md §3.2 so the doc matches the firmware.
 - **Map screen occludes both arrival signals.** Opening the in-game map hides
    the minimap and the on-screen nav arrows simultaneously, so
    NavigationProcessor reads it as both-signals-lost and fires `arrived` within
@@ -85,7 +104,6 @@ Items 8–11 cleared to TROUBLESHOOTING.md / CHEATSHEET.md on 2026-08-03.
     PSReadLine to 2.3+, check profile, try Windows Terminal directly.
 
 ## Active debugging
-- ~~Black-frame capture issue.~~ **Resolved 2026-08-03:** transient capture-card/driver fault, cleared by restart. Not a code defect. If it recurs, first suspect is the hardcoded MJPG FOURCC negotiation in AVerMediaCapture._open_capture — OpenCV accepts an unsupported format silently and delivers black frames with valid geometry.
 - **Nav-arrow model recall is degraded.** The legacy YOLOv5 nav-arrow
    checkpoint requires confidence_threshold 0.25 to fire reliably;
    configs/detectors/nav_arrow.yaml shipped at 0.50 and the detector
@@ -124,6 +142,7 @@ Items 8–11 cleared to TROUBLESHOOTING.md / CHEATSHEET.md on 2026-08-03.
 - **Overlapping-burst emission (ADR-014) has downstream implications for Phase 4b stuck detection.** F-NAV-3's stuck definition currently keys on "movement burst active or just completed" — an anchor that doesn't exist under continuous emission. Proposed replacement anchor is banked in F-NAV-3's impact bullet. Confirm the replacement wording and add unit tests during Phase 4b implementation session, not before.
 
 ## Resolved
+- ~~**GC573 returns black frames unless another application has the device open (OPEN).**~~ **Resolved 2026-08-06:** Misdiagnosis. The device emits 83 black frames (~1395 ms) after open and then runs clean at 60 fps; OBS was occupying that window, not initialising the stream. Every probe had discarded only 10 frames. Fixed by capture warm-up per ADR-022. The OBS workaround is withdrawn — it also halved the frame rate through device sharing.
 - ~~**Phase 4a.1 part 2 outstanding (arrival unsafe).** NavigationProcessor does not read pin state; arrival remains single-signal. configs/navigation.yaml has arrival_confirm_ticks: 12, matching neither ADR-015's pre-amendment value (120) nor its target (24), and no backstop key exists. Live navigation runs will false-arrive on nav_arrow dropouts until ADR-015's compound-signal amendment is implemented. Do not run run_nav.py for acceptance until this closes.~~ **Resolved 2026-08-06:** Compound-signal arrival implemented per ADR-015 with the discriminator amendments in ADR-021. arrival_confirm_ticks is 24 and nav_arrow_only_arrival_backstop_ticks is 300. Live acceptance still pending.
 - ~~Arrival heuristic under overlap is brittle to prolonged detector
    dropouts.~~ **Resolved 2026-07-18:** Not previously banked; noting
