@@ -14,6 +14,7 @@ class GameState:
     timestamp: float
     character_moving: bool
     character_moving_frame_id: int
+    character_moving_raw: bool = False
     nav_arrows: list[Detection] = field(default_factory=list)
     nav_arrows_frame_id: int | None = None
     pin_visible: bool = False
@@ -70,6 +71,9 @@ class GameStateUpdater:
             raise TypeError(f"Detector '{name}' is not callable and has no update(frame) method")
 
         character_moving = bool(detector_results.get("minimap_motion", False))
+        minimap_motion_detector = self._detectors.get("minimap_motion")
+        raw_motion_value = getattr(minimap_motion_detector, "raw_motion", False)
+        character_moving_raw = bool(raw_motion_value)
 
         nav_arrows_raw = detector_results.get("nav_arrow", [])
         if nav_arrows_raw is None:
@@ -97,6 +101,7 @@ class GameStateUpdater:
             timestamp=frame.timestamp,
             character_moving=character_moving,
             character_moving_frame_id=frame.frame_id,
+            character_moving_raw=character_moving_raw,
             nav_arrows=nav_arrows,
             nav_arrows_frame_id=nav_arrows_frame_id,
             pin_visible=pin_visible,
