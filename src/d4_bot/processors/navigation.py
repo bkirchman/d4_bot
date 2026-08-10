@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Mapping, Optional
 
@@ -9,6 +9,7 @@ from framework.contrib.content_loops import CommandRegistry
 from framework.contrib.ml import Detection
 from framework.interfaces import Action, FrameProcessor, StampedFrame
 
+from d4_bot.recovery import RecoveryDirective, StuckMonitor
 from d4_bot.state import GameState, GameStateUpdater, StateDiff
 
 
@@ -19,6 +20,7 @@ PRE_EFFECT_SETTLING_TICKS = 2
 class NavigationState(str, Enum):
     STEERING = "steering"
     PRE_EFFECT = "pre_effect"
+    STUCK_RECOVERY = "stuck_recovery"
     SEARCHING = "searching"
     ARRIVED = "arrived"
 
@@ -27,6 +29,17 @@ class NavigationState(str, Enum):
 class SteeringVector:
     x: float
     y: float
+
+
+@dataclass(slots=True)
+class ActiveRecoveryRung:
+    directive: RecoveryDirective
+    started_frame_id: int
+    duration_ticks: int
+    base_bearing: SteeringVector | None
+    reapproach_left: bool
+    press_schedule_ticks: tuple[int, ...]
+    emitted_press_offsets: set[int] = field(default_factory=set)
 
 
 class NavigationProcessor(FrameProcessor):
@@ -57,6 +70,15 @@ class NavigationProcessor(FrameProcessor):
         self._stuck_window_ticks = int(_require_config_key(config, "stuck_window_ticks"))
         self._stuck_quiet_fraction = float(_require_config_key(config, "stuck_quiet_fraction"))
         self._stuck_event_budget = int(_require_config_key(config, "stuck_event_budget"))
+        self._recovery_reverse_ticks = int(_require_config_key(config, "recovery_reverse_ticks"))
+        self._recovery_interact_press_count = int(_require_config_key(config, "recovery_interact_press_count"))
+        self._recovery_interact_press_interval_ticks = int(
+            _require_config_key(config, "recovery_interact_press_interval_ticks")
+        )
+        self._recovery_reapproach_offset_degrees = float(
+            _require_config_key(config, "recovery_reapproach_offset_degrees")
+        )
+        self._recovery_reapproach_ticks = int(_require_config_key(config, "recovery_reapproach_ticks"))
         self._emission_interval_ms = int(_require_config_key(config, "emission_interval_ms"))
         self._burst_duration_ms = int(_require_config_key(config, "burst_duration_ms"))
         self._significant_direction_change_degrees = float(
@@ -90,6 +112,30 @@ class NavigationProcessor(FrameProcessor):
             raise ValueError("navigation config stuck_quiet_fraction must be greater than 0.0 and at most 1.0")
         if self._stuck_event_budget <= 0:
             raise ValueError("navigation config stuck_event_budget must be a positive integer")
+        if self._recovery_reverse_ticks <= 0:
+            raise ValueError("navigation config recovery_reverse_ticks must be a positive integer")
+        if self._recovery_interact_press_count <= 0:
+            raise ValueError("navigation config recovery_interact_press_count must be a positive integer")
+        if self._recovery_interact_press_interval_ticks <= 0:
+            raise ValueError(
+                "navigation config recovery_interact_press_interval_ticks must be a positive integer"
+            )
+        if self._recovery_reapproach_offset_degrees <= 0.0 or self._recovery_reapproach_offset_degrees >= 90.0:
+            raise ValueError(
+                "navigation config recovery_reapproach_offset_degrees must be greater than 0 and less than 90"
+            )
+        if self._recovery_reapproach_ticks <= 0:
+            raise ValueError("navigation config recovery_reapproach_ticks must be a positive integer")
+        recovery_press_span_ticks = (
+            self._recovery_interact_press_count - 1
+        ) * self._recovery_interact_press_interval_ticks
+        if recovery_press_span_ticks > self._recovery_reverse_ticks:
+            raise ValueError(
+                "navigation config recovery interact schedule exceeds reverse duration "
+                f"(recovery_interact_press_count={self._recovery_interact_press_count}, "
+                f"recovery_interact_press_interval_ticks={self._recovery_interact_press_interval_ticks}, "
+                f"recovery_reverse_ticks={self._recovery_reverse_ticks})"
+            )
         if self._emission_interval_ms <= 0:
             raise ValueError("navigation config emission_interval_ms must be positive")
         if self._burst_duration_ms <= 0:
@@ -107,6 +153,7 @@ class NavigationProcessor(FrameProcessor):
             raise ValueError("navigation config stale_direction_tolerance_ticks must be between 1 and 120")
 
         self._steering_command_factory = commands.get(self._steering_command_name)
+        self._press_a_command_factory = commands.get("press_a")
         steering_payload = dict(self._steering_command_factory())
         if "move_duration" not in steering_payload:
             raise ValueError(
@@ -120,6 +167,19 @@ class NavigationProcessor(FrameProcessor):
                 "navigation config burst_duration_ms must match steering command move_duration "
                 f"(burst_duration_ms={self._burst_duration_ms}, move_duration={steering_duration_ms})"
             )
+        press_a_payload = dict(self._press_a_command_factory())
+        if not any(key.startswith("button_") for key in press_a_payload):
+            raise ValueError("press_a command payload must include a button_* field")
+        if not any(key.startswith("button_") and key.endswith("_duration") for key in press_a_payload):
+            raise ValueError("press_a command payload must include a button_*_duration field")
+
+        self._stuck_monitor = StuckMonitor(
+            latency_frames=latency_frames,
+            config=config,
+            recovery_reverse_ticks=self._recovery_reverse_ticks,
+            recovery_interact_press_count=self._recovery_interact_press_count,
+            recovery_interact_press_interval_ticks=self._recovery_interact_press_interval_ticks,
+        )
 
         self._state = NavigationState.STEERING
         self._terminal_status: str | None = None
@@ -146,6 +206,8 @@ class NavigationProcessor(FrameProcessor):
         self._nav_arrow_lost_ticks: int = 0
         self._target_acquired: bool = False
         self._arrival_via_backstop: bool = False
+        self._active_recovery: ActiveRecoveryRung | None = None
+        self._reapproach_left_next = True
 
     @property
     def nav_state(self) -> NavigationState:
@@ -232,9 +294,6 @@ class NavigationProcessor(FrameProcessor):
         if state.nav_arrows:
             self._nav_lost_started_frame_id = None
 
-        # Phase 4b seam: stuck-recovery integration is intentionally omitted in Phase 4a.
-        self._phase4b_stuck_recovery_seam(state, state_diff)
-
         self._update_arrival_counters(state)
 
         if self._state is NavigationState.ARRIVED:
@@ -243,6 +302,14 @@ class NavigationProcessor(FrameProcessor):
         if (not self._in_pre_effect_window(frame.frame_id)) and self._target_acquired:
             if self._try_arrival():
                 return None
+
+        recovery_action = self._phase4b_stuck_recovery_seam(frame, state, state_diff)
+        if recovery_action is not None:
+            return recovery_action
+        if self.is_terminal:
+            return None
+        if self._active_recovery is not None:
+            return None
 
         if self._state is NavigationState.SEARCHING:
             return self._tick_searching(frame, state)
@@ -458,9 +525,149 @@ class NavigationProcessor(FrameProcessor):
         angle_delta = _angle_difference_degrees(self._previous_burst_direction, new_direction)
         return angle_delta > self._significant_direction_change_degrees
 
-    def _phase4b_stuck_recovery_seam(self, state: GameState, state_diff: StateDiff) -> None:
-        _ = state
+    def _phase4b_stuck_recovery_seam(
+        self,
+        frame: StampedFrame,
+        state: GameState,
+        state_diff: StateDiff,
+    ) -> Action | None:
         _ = state_diff
+
+        if self._active_recovery is not None:
+            return self._tick_active_recovery(frame)
+
+        directive = self._stuck_monitor.update(
+            state,
+            pre_effect_elapsed=not self._in_pre_effect_window(frame.frame_id),
+        )
+        if directive is None:
+            return None
+        if directive.terminal_status is not None:
+            self._terminal_status = directive.terminal_status
+            return None
+
+        execution = self._build_recovery_execution(frame, state, directive)
+        if execution is None:
+            return None
+
+        self._active_recovery = execution
+        self._state = NavigationState.STUCK_RECOVERY
+        return self._tick_active_recovery(frame)
+
+    def _build_recovery_execution(
+        self,
+        frame: StampedFrame,
+        state: GameState,
+        directive: RecoveryDirective,
+    ) -> ActiveRecoveryRung | None:
+        press_schedule = tuple(int(value) for value in directive.parameters.get("press_schedule_ticks", ()))
+        if directive.rung == 1:
+            return ActiveRecoveryRung(
+                directive=directive,
+                started_frame_id=frame.frame_id,
+                duration_ticks=1,
+                base_bearing=None,
+                reapproach_left=True,
+                press_schedule_ticks=press_schedule,
+            )
+
+        bearing = self._resolve_recovery_bearing(frame, state)
+        if bearing is None:
+            return None
+
+        if directive.rung == 2:
+            return ActiveRecoveryRung(
+                directive=directive,
+                started_frame_id=frame.frame_id,
+                duration_ticks=self._recovery_reverse_ticks,
+                base_bearing=bearing,
+                reapproach_left=True,
+                press_schedule_ticks=press_schedule,
+            )
+
+        if directive.rung == 3:
+            reapproach_left = self._reapproach_left_next
+            self._reapproach_left_next = not self._reapproach_left_next
+            return ActiveRecoveryRung(
+                directive=directive,
+                started_frame_id=frame.frame_id,
+                duration_ticks=self._recovery_reverse_ticks + self._recovery_reapproach_ticks,
+                base_bearing=bearing,
+                reapproach_left=reapproach_left,
+                press_schedule_ticks=(),
+            )
+
+        return None
+
+    def _resolve_recovery_bearing(self, frame: StampedFrame, state: GameState) -> SteeringVector | None:
+        steering, _, _, _ = self._select_direction_for_emission(frame, state)
+        if steering is not None:
+            return steering
+        return self._last_known_good_direction
+
+    def _tick_active_recovery(self, frame: StampedFrame) -> Action | None:
+        active = self._active_recovery
+        if active is None:
+            return None
+
+        elapsed_ticks = frame.frame_id - active.started_frame_id
+        if elapsed_ticks >= active.duration_ticks:
+            self._active_recovery = None
+            if not self.is_terminal:
+                self._state = NavigationState.STEERING
+            return None
+
+        press_now = elapsed_ticks in active.press_schedule_ticks and elapsed_ticks not in active.emitted_press_offsets
+        movement_vector = self._recovery_movement_vector(active, elapsed_ticks)
+        action = self._emit_recovery_action(frame, movement_vector, emit_press_a=press_now)
+        if press_now:
+            active.emitted_press_offsets.add(elapsed_ticks)
+        return action
+
+    def _recovery_movement_vector(self, active: ActiveRecoveryRung, elapsed_ticks: int) -> SteeringVector | None:
+        if active.directive.rung == 1:
+            return None
+        if active.base_bearing is None:
+            return None
+        if active.directive.rung == 2:
+            return SteeringVector(x=-active.base_bearing.x, y=-active.base_bearing.y)
+        if active.directive.rung == 3:
+            if elapsed_ticks < self._recovery_reverse_ticks:
+                return SteeringVector(x=-active.base_bearing.x, y=-active.base_bearing.y)
+            signed_offset = self._recovery_reapproach_offset_degrees if active.reapproach_left else -self._recovery_reapproach_offset_degrees
+            return _rotate_vector(active.base_bearing, signed_offset)
+        return None
+
+    def _emit_recovery_action(
+        self,
+        frame: StampedFrame,
+        movement_vector: SteeringVector | None,
+        *,
+        emit_press_a: bool,
+    ) -> Action | None:
+        payload: dict[str, Any] = {}
+        if movement_vector is not None:
+            steering_payload = dict(self._steering_command_factory())
+            steering_payload["move_x"] = _clamp(
+                int(round(movement_vector.x * self._stick_magnitude)),
+                -self._stick_magnitude,
+                self._stick_magnitude,
+            )
+            steering_payload["move_y"] = _clamp(
+                int(round(movement_vector.y * self._stick_magnitude)),
+                -self._stick_magnitude,
+                self._stick_magnitude,
+            )
+            payload.update(steering_payload)
+            self._last_burst_emitted_frame_id = frame.frame_id
+
+        if emit_press_a:
+            payload.update(dict(self._press_a_command_factory()))
+
+        if not payload:
+            return None
+
+        return Action(frame_id=frame.frame_id, timestamp=frame.timestamp, payload=payload)
 
     def _steering_from_detection(self, frame: StampedFrame, detection: Detection) -> SteeringVector | None:
         x, y, w, h = detection.bbox
@@ -573,3 +780,15 @@ def _angle_difference_degrees(previous: SteeringVector, current: SteeringVector)
     det = (previous.x * current.y) - (previous.y * current.x)
     angle = math.degrees(math.atan2(det, dot))
     return abs(angle)
+
+
+def _rotate_vector(vector: SteeringVector, offset_degrees: float) -> SteeringVector:
+    radians = math.radians(offset_degrees)
+    cos_v = math.cos(radians)
+    sin_v = math.sin(radians)
+    rotated_x = (vector.x * cos_v) - (vector.y * sin_v)
+    rotated_y = (vector.x * sin_v) + (vector.y * cos_v)
+    magnitude = math.hypot(rotated_x, rotated_y)
+    if magnitude <= 0.0:
+        return vector
+    return SteeringVector(x=rotated_x / magnitude, y=rotated_y / magnitude)
