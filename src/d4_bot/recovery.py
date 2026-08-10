@@ -33,30 +33,20 @@ class RecoveryLadder:
         self._recovery_reverse_ticks = recovery_reverse_ticks
         self._recovery_interact_press_count = recovery_interact_press_count
         self._recovery_interact_press_interval_ticks = recovery_interact_press_interval_ticks
-        self._stuck_event_count = 0
-        self._terminal = False
+        self._current_rung = 1
 
     @property
-    def stuck_event_count(self) -> int:
-        return self._stuck_event_count
+    def current_rung(self) -> int:
+        return self._current_rung
 
     def reset(self) -> None:
-        self._stuck_event_count = 0
-        self._terminal = False
+        self._current_rung = 1
 
-    def report_moved(self) -> None:
-        self.reset()
+    def advance(self) -> None:
+        self._current_rung = 1 if self._current_rung == 3 else self._current_rung + 1
 
     def next_directive(self) -> RecoveryDirective:
-        if self._terminal:
-            return RecoveryDirective(
-                rung=4,
-                command_name=None,
-                parameters={},
-                terminal_status="stuck_unrecoverable",
-            )
-
-        rung = min(self._stuck_event_count + 1, 4)
+        rung = self._current_rung
         if rung == 1:
             return RecoveryDirective(
                 rung=1,
@@ -92,20 +82,7 @@ class RecoveryLadder:
                     "mode": "angular_reapproach",
                 },
             )
-
-        self._terminal = True
-        return RecoveryDirective(
-            rung=4,
-            command_name=None,
-            parameters={},
-            terminal_status="stuck_unrecoverable",
-        )
-
-    def advance(self) -> None:
-        if not self._terminal:
-            self._stuck_event_count += 1
-            if self._stuck_event_count >= 4:
-                self._terminal = True
+        raise RuntimeError(f"unexpected recovery rung {rung}")
 
 
 class StuckMonitor:
@@ -138,40 +115,52 @@ class StuckMonitor:
             recovery_interact_press_interval_ticks=recovery_interact_press_interval_ticks,
         )
         self._raw_motion_history: deque[bool] = deque(maxlen=self._stuck_window_ticks)
+        self._stuck_event_count = 0
         self._terminal_directive = RecoveryDirective(
             rung=4,
             command_name=None,
             parameters={},
             terminal_status="stuck_unrecoverable",
         )
+        self._terminal = False
 
     @property
     def stuck_event_count(self) -> int:
-        return self._ladder.stuck_event_count
+        return self._stuck_event_count
 
     def update(self, state: GameState, *, pre_effect_elapsed: bool = True) -> RecoveryDirective | None:
-        if self._ladder.stuck_event_count >= self._stuck_event_budget:
+        if self._terminal:
             return self._terminal_directive
 
-        if state.character_moving_raw:
-            self._raw_motion_history.clear()
-            self._ladder.report_moved()
-            return None
-
         self._raw_motion_history.append(not state.character_moving_raw)
-        if not pre_effect_elapsed:
-            return None
         if len(self._raw_motion_history) < self._stuck_window_ticks:
             return None
+
         quiet_fraction = sum(self._raw_motion_history) / len(self._raw_motion_history)
-        if not state.nav_arrows:
-            return None
-        if quiet_fraction < self._stuck_quiet_fraction:
+        if not pre_effect_elapsed:
+            if quiet_fraction < (1.0 - self._stuck_quiet_fraction):
+                self._ladder.reset()
             return None
 
-        directive = self._ladder.next_directive()
-        self._ladder.advance()
-        return directive
+        if not state.nav_arrows:
+            if quiet_fraction < (1.0 - self._stuck_quiet_fraction):
+                self._ladder.reset()
+            return None
+
+        if quiet_fraction >= self._stuck_quiet_fraction:
+            directive = self._ladder.next_directive()
+            self._stuck_event_count += 1
+            if self._stuck_event_count >= self._stuck_event_budget:
+                self._terminal = True
+                return self._terminal_directive
+            self._ladder.advance()
+            return directive
+
+        if quiet_fraction < (1.0 - self._stuck_quiet_fraction):
+            self._ladder.reset()
+            return None
+
+        return None
 
 
 def _require_config_key(config: Mapping[str, Any], key: str) -> Any:
