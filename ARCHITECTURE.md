@@ -599,3 +599,43 @@ The consecutive-tick definition assumes a clean stop. Real stuck on this rig stu
 ---
 
 *End of ARCHITECTURE.md. Next document: FEATURE_SPECS.md.*
+
+### ADR-024 — Recovery ladder attempts traversal before repositioning
+
+**Date:** 2026-08-06
+**Status:** Accepted.
+
+**Context.** Supersedes the ladder section of ADR-023. ADR-023's stuck detection remains in force unchanged; only its ladder is replaced.
+
+The ladder in ADR-023 assumed stuck means blocked, and its rungs reposition the character: reverse out, re-approach at an angle. Operator experience from the prior D4 bot implementation identifies two common stuck causes that are not blockage at all:
+
+- A ladder or similar interactable directly ahead, requiring an interact press to traverse. No amount of repositioning helps, and reversing moves the character away from the thing it needs to climb.
+- An overhead or gap crossing, which requires separation and a running start before the crossing prompt will register. The prompt registers at a specific moment during the approach that cannot be predicted from a frame 6 frames stale, so the prior implementation used repeated interact presses across the approach rather than one timed press. This worked.
+
+Repositioning is the right response to genuine geometric blockage, but it is the most disruptive rung and it was first. Traversal attempts are cheap, fast, and non-destructive - in the current defensive-combat-only scope the worst outcome of a stray interact press is initiating an attack, which is acceptable.
+
+**Decision.** The ladder becomes four rungs, attempted in order, one rung per stuck event:
+
+1. Single interact press, character stationary. Resolves ladders and directly-adjacent interactables.
+2. Reverse along the inverse of the current nav bearing for `recovery_reverse_ticks`, with `recovery_interact_press_count` interact presses distributed across that movement at `recovery_interact_press_interval_ticks` spacing. Presses overlap the movement rather than following it - the running start is the point. Resolves overhead and gap crossings.
+3. Reverse and re-approach at an angular offset to the guide bearing, as specified in ADR-023 and F-NAV-3. Unchanged. Resolves geometric blockage.
+4. Terminal: `stuck_unrecoverable`.
+
+Starting values, from operator recall of the prior implementation, pending Phase 4b live acceptance:
+    recovery_reverse_ticks: 30
+    recovery_interact_press_count: 6
+    recovery_interact_press_interval_ticks: 5
+
+These describe roughly half a second of reverse movement with six interact presses spread across it, at true 60 fps.
+
+**Consequences.**
+- F-NAV-3's ladder is rewritten; its stuck definition is untouched.
+- Three config keys added to navigation.yaml with constructor validation.
+- The interact command is referenced by its registry name from buttons.yaml. The implementing block must confirm the binding exists rather than assuming it carried over from the prior bot.
+- Rung 2 is the first place in the navigation path that emits a button press rather than stick movement. Emission remains the processor's responsibility; StuckMonitor reports rungs and never emits.
+- Per-run `stuck_event_budget` from ADR-023 is unchanged and still bounds the whole ladder including the new rungs. With four rungs and a budget of 6, a run can traverse the full ladder and retry the early rungs once.
+
+**Alternatives considered.**
+- Keeping repositioning first and adding traversal later in the ladder. Rejected: traversal is cheaper and less disruptive, and repositioning actively worsens the ladder-climb case by increasing distance.
+- A single timed interact press in rung 2. Rejected: the crossing prompt's registration window cannot be targeted from a capture 6 frames behind. Repeated presses are the operator-validated approach.
+- Screen-mode or prompt detection to identify traversal opportunities directly. Deferred: that is the screen-mode detection work ADR-020 names as the one shared-infrastructure exception, and it is not scoped.
