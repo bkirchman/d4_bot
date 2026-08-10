@@ -257,9 +257,10 @@ Guardrails for this phase:
   reading not-moving in the raw motion field. All tick counts from config.
 - StuckMonitor reads the raw motion field from GameState and never the
   debounced character_moving field.
-- The ladder is exactly three rungs (reverse, offset-angle re-approach via
-  the steering helper — movement direction, never camera — and B escape), plus
-  terminal fail. Do NOT add a re-pin rung, a random-walk rung, or an
+- The ladder is exactly four rungs (single stationary interact press,
+  reverse with interact presses overlapping the movement, offset-angle
+  re-approach via the steering helper — movement direction, never camera —
+  and terminal fail). Do NOT add a re-pin rung, a random-walk rung, or an
   auto-restart — restart is the operator's job.
 - Ladder behavior includes the per-run stuck_event_budget cap and resets to
   rung 1 on confirmed movement per spec.
