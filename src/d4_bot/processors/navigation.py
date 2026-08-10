@@ -54,7 +54,9 @@ class NavigationProcessor(FrameProcessor):
         self._nav_arrow_only_arrival_backstop_ticks = int(
             _require_config_key(config, "nav_arrow_only_arrival_backstop_ticks")
         )
-        self._recent_movement_window_ticks = int(_require_config_key(config, "recent_movement_window_ticks"))
+        self._stuck_window_ticks = int(_require_config_key(config, "stuck_window_ticks"))
+        self._stuck_quiet_fraction = float(_require_config_key(config, "stuck_quiet_fraction"))
+        self._stuck_event_budget = int(_require_config_key(config, "stuck_event_budget"))
         self._emission_interval_ms = int(_require_config_key(config, "emission_interval_ms"))
         self._burst_duration_ms = int(_require_config_key(config, "burst_duration_ms"))
         self._significant_direction_change_degrees = float(
@@ -82,8 +84,12 @@ class NavigationProcessor(FrameProcessor):
                 f"(nav_arrow_only_arrival_backstop_ticks={self._nav_arrow_only_arrival_backstop_ticks}, "
                 f"arrival_confirm_ticks={self._arrival_confirm_ticks})"
             )
-        if self._recent_movement_window_ticks <= 0:
-            raise ValueError("navigation config recent_movement_window_ticks must be positive")
+        if self._stuck_window_ticks <= 0:
+            raise ValueError("navigation config stuck_window_ticks must be a positive integer")
+        if self._stuck_quiet_fraction <= 0.0 or self._stuck_quiet_fraction > 1.0:
+            raise ValueError("navigation config stuck_quiet_fraction must be greater than 0.0 and at most 1.0")
+        if self._stuck_event_budget <= 0:
+            raise ValueError("navigation config stuck_event_budget must be a positive integer")
         if self._emission_interval_ms <= 0:
             raise ValueError("navigation config emission_interval_ms must be positive")
         if self._burst_duration_ms <= 0:
