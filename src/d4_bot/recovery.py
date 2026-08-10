@@ -152,7 +152,9 @@ class StuckMonitor:
             self._stuck_event_count += 1
             if self._stuck_event_count >= self._stuck_event_budget:
                 self._terminal = True
+                self._raw_motion_history.clear()
                 return self._terminal_directive
+            self._raw_motion_history.clear()
             self._ladder.advance()
             return directive
 
