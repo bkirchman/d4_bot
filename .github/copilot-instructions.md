@@ -42,6 +42,7 @@ it runs:
    processors, detectors, and anything that reads or writes GameState. The
    exemption is safe because the recorder observes the tick, never influences
    it, and drops work under load rather than blocking the tick.
+   Under load, the recorder drops rather than blocks.
 
 5. CONFIGURATION DISCIPLINE. YAML only; no JSON. Pixel coordinates appear only
    in configs/rois.yaml. Thresholds, durations, cadences, and tick counts are
