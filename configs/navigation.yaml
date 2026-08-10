@@ -20,6 +20,11 @@
   stuck_window_ticks: 90
   stuck_quiet_fraction: 0.5
   stuck_event_budget: 6
+  recovery_reverse_ticks: 30
+  recovery_interact_press_count: 6
+  recovery_interact_press_interval_ticks: 5
+  recovery_reapproach_offset_degrees: 45
+  recovery_reapproach_ticks: 30
   history_capacity: 512
   target_class_name: Navigation
   record_output_dir: frames/nav_run
