@@ -34,6 +34,14 @@ it runs:
    threading, asyncio, timers, callbacks, or sleeps inside processors (BotLoop
    owns time). Concurrency of concerns is achieved by detector cadence, not
    parallelism.
+   Narrow exemption: framework-level I/O infrastructure that does not
+   participate in the tick decision path may use a worker thread. The current
+   and only allowed case is FrameRecorder in bot_framework
+   (framework/contrib/recording/recorder.py); this rule governs both repos even
+   though it is written in d4_bot. This remains an absolute prohibition for
+   processors, detectors, and anything that reads or writes GameState. The
+   exemption is safe because the recorder observes the tick, never influences
+   it, and drops work under load rather than blocking the tick.
 
 5. CONFIGURATION DISCIPLINE. YAML only; no JSON. Pixel coordinates appear only
    in configs/rois.yaml. Thresholds, durations, cadences, and tick counts are
