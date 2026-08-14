@@ -207,6 +207,7 @@ class NavigationProcessor(FrameProcessor):
         self._target_acquired: bool = False
         self._arrival_via_backstop: bool = False
         self._active_recovery: ActiveRecoveryRung | None = None
+        self._last_recovery_rung_frame_id: int | None = None
         self._reapproach_left_next = True
 
     @property
@@ -264,6 +265,20 @@ class NavigationProcessor(FrameProcessor):
     @property
     def arrival_via_backstop(self) -> bool:
         return self._arrival_via_backstop
+
+    @property
+    def active_recovery_rung(self) -> int | None:
+        if self._active_recovery is None:
+            return None
+        return self._active_recovery.directive.rung
+
+    @property
+    def stuck_event_count(self) -> int:
+        return self._stuck_monitor.stuck_event_count
+
+    @property
+    def last_recovery_rung_frame_id(self) -> int | None:
+        return self._last_recovery_rung_frame_id
 
     @property
     def latest_state(self) -> GameState | None:
@@ -550,6 +565,7 @@ class NavigationProcessor(FrameProcessor):
         if execution is None:
             return None
 
+        self._last_recovery_rung_frame_id = frame.frame_id
         self._active_recovery = execution
         self._state = NavigationState.STUCK_RECOVERY
         return self._tick_active_recovery(frame)
