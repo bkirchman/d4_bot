@@ -131,7 +131,7 @@ def test_full_window_exactly_at_stuck_quiet_fraction_produces_stuck() -> None:
 
     directive = _last_directive(outputs)
     assert directive.rung == 1
-    assert directive.command_name == "press_a"
+    assert directive.command_name == "press_b"
 
 
 def test_full_window_one_reading_below_stuck_quiet_fraction_produces_no_stuck() -> None:
@@ -150,7 +150,7 @@ def test_measured_wall_pattern_scattered_not_moving_produces_stuck() -> None:
 
     directive = _last_directive(outputs)
     assert directive.rung == 1
-    assert directive.command_name == "press_a"
+    assert directive.command_name == "press_b"
 
 
 def test_sustained_motion_under_1_percent_not_moving_never_produces_stuck() -> None:
@@ -183,7 +183,7 @@ def test_rung_one_is_reported_on_first_stuck_event() -> None:
     directive = _last_directive(_feed_motion(monitor, [False] * 90))
 
     assert directive.rung == 1
-    assert directive.command_name == "press_a"
+    assert directive.command_name == "press_b"
     assert directive.parameters["stationary"] is True
     assert directive.parameters["press_count"] == 1
     assert directive.parameters["press_schedule_ticks"] == (0,)
@@ -198,7 +198,7 @@ def test_rung_two_reports_reverse_duration_and_press_schedule_with_matching_coun
     second = directives[1][1]
     assert first.rung == 1
     assert second.rung == 2
-    assert second.command_name == "press_a"
+    assert second.command_name == "press_b"
     assert second.parameters["reverse_duration_ticks"] == REVERSE_TICKS
     assert second.parameters["press_count"] == PRESS_COUNT
     assert second.parameters["press_interval_ticks"] == PRESS_INTERVAL_TICKS
