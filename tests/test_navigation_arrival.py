@@ -72,7 +72,7 @@ def _make_processor(states: list[GameState], config: dict[str, Any] | None = Non
             "move_duration": selected_config["burst_duration_ms"],
         },
     )
-    commands.register("press_a", lambda: {"button_1": 1, "button_1_duration": 80})
+    commands.register("press_b", lambda: {"button_2": 1, "button_2_duration": 80})
     return NavigationProcessor(
         updater=_SequenceUpdater(states),
         state_differ=diff,
@@ -293,7 +293,7 @@ def test_verdict_ordering_arrival_outranks_stuck() -> None:
         nonlocal call_count
         call_count += 1
         if state.frame_id == cfg["arrival_confirm_ticks"]:
-            return RecoveryDirective(rung=1, command_name="press_a", parameters={"press_schedule_ticks": (0,)})
+            return RecoveryDirective(rung=1, command_name="press_b", parameters={"press_schedule_ticks": (0,)})
         return None
 
     processor._stuck_monitor.update = _fake_update  # type: ignore[method-assign]
@@ -303,7 +303,7 @@ def test_verdict_ordering_arrival_outranks_stuck() -> None:
     assert processor.terminal_status == "arrived"
     assert processor.nav_state is NavigationState.ARRIVED
     assert call_count == len(states) - 1
-    assert all("button_1" not in action.payload for action in actions)
+    assert all("button_2" not in action.payload for action in actions)
 
 
 def test_stuck_remains_live_during_backstop_window() -> None:
@@ -316,14 +316,48 @@ def test_stuck_remains_live_during_backstop_window() -> None:
 
     def _fake_update(_state_arg: GameState, *, pre_effect_elapsed: bool = True) -> RecoveryDirective | None:
         _ = pre_effect_elapsed
-        return RecoveryDirective(rung=1, command_name="press_a", parameters={"press_schedule_ticks": (0,)})
+        return RecoveryDirective(rung=1, command_name="press_b", parameters={"press_schedule_ticks": (0,)})
 
     processor._stuck_monitor.update = _fake_update  # type: ignore[method-assign]
 
     actions = _run_ticks_collect_actions(processor, 2)
 
-    assert any("button_1" in action.payload for action in actions)
+    assert any("button_2" in action.payload for action in actions)
     assert processor.terminal_status is None
+
+
+def test_recovery_rung_properties_expose_current_and_last_frame_id() -> None:
+    cfg = _make_config()
+    states = [_state_with_raw(frame_id=i, nav=True, pin_visible=True, raw_moving=False) for i in range(40)]
+    processor = _make_processor(states, cfg)
+
+    assert processor.active_recovery_rung is None
+    assert processor.last_recovery_rung_frame_id is None
+    assert processor.stuck_event_count == 0
+
+    def _fake_update(_state_arg: GameState, *, pre_effect_elapsed: bool = True) -> RecoveryDirective | None:
+        _ = pre_effect_elapsed
+        if _state_arg.frame_id == 0:
+            processor._stuck_monitor._stuck_event_count = 1  # type: ignore[attr-defined]
+            return RecoveryDirective(
+                rung=2,
+                command_name="press_b",
+                parameters={
+                    "press_schedule_ticks": (0, 5, 10, 15, 20, 25),
+                    "reverse_duration_ticks": cfg["recovery_reverse_ticks"],
+                },
+            )
+        return None
+
+    processor._stuck_monitor.update = _fake_update  # type: ignore[method-assign]
+
+    actions = _run_ticks_collect_actions(processor, 40)
+
+    assert actions
+    assert processor.active_recovery_rung is None
+    assert processor.last_recovery_rung_frame_id == 0
+    assert processor.stuck_event_count == 1
+    assert processor.stuck_event_count == processor._stuck_monitor.stuck_event_count
 
 
 def test_normal_steering_suspended_during_recovery_and_resumes_after() -> None:
@@ -334,7 +368,7 @@ def test_normal_steering_suspended_during_recovery_and_resumes_after() -> None:
     directives = [
         RecoveryDirective(
             rung=2,
-            command_name="press_a",
+            command_name="press_b",
             parameters={
                 "press_schedule_ticks": (0, 5, 10, 15, 20, 25),
                 "reverse_duration_ticks": cfg["recovery_reverse_ticks"],
@@ -373,7 +407,7 @@ def test_second_rung_cannot_start_while_one_is_in_progress() -> None:
         call_count += 1
         return RecoveryDirective(
             rung=2,
-            command_name="press_a",
+            command_name="press_b",
             parameters={"press_schedule_ticks": (0, 5, 10, 15, 20, 25)},
         )
 
@@ -384,7 +418,7 @@ def test_second_rung_cannot_start_while_one_is_in_progress() -> None:
     assert call_count == 1
 
 
-def test_rung_two_emits_press_a_at_scheduled_offsets_during_reverse() -> None:
+def test_rung_two_emits_press_b_at_scheduled_offsets_during_reverse() -> None:
     cfg = _make_config()
     states = [_state_with_raw(frame_id=i, nav=True, pin_visible=True, raw_moving=False) for i in range(40)]
     processor = _make_processor(states, cfg)
@@ -394,7 +428,7 @@ def test_rung_two_emits_press_a_at_scheduled_offsets_during_reverse() -> None:
         if _state_arg.frame_id == 0:
             return RecoveryDirective(
                 rung=2,
-                command_name="press_a",
+                command_name="press_b",
                 parameters={"press_schedule_ticks": (0, 5, 10, 15, 20, 25)},
             )
         return None
@@ -402,7 +436,7 @@ def test_rung_two_emits_press_a_at_scheduled_offsets_during_reverse() -> None:
     processor._stuck_monitor.update = _fake_update  # type: ignore[method-assign]
 
     actions = _run_ticks_collect_actions(processor, 40)
-    press_frames = [action.frame_id for action in actions if "button_1" in action.payload]
+    press_frames = [action.frame_id for action in actions if "button_2" in action.payload]
 
     assert press_frames == [0, 5, 10, 15, 20, 25]
     assert all(frame_id < cfg["recovery_reverse_ticks"] for frame_id in press_frames)
