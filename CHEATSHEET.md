@@ -32,6 +32,43 @@ Prompt blocks are labelled uniquely (e.g. `P4a.1-B2`, `ENV-B1`) and re-issues
 take a letter suffix rather than a new number. Substantive code blocks verify
 before committing; text-only blocks may commit as they go.
 
+### Change tiers
+
+Use the lightest tier that matches the risk of the requested change.
+
+**TRIVIAL** — a literal value, name, string, or index. No new behaviour and no
+new decision. One block, one commit per file, verification is the existing test
+that covers the value plus the full suite. No ADR. Spec edit only if a spec
+names the literal. Example: changing which button a command sends.
+
+**MODERATE** — new config keys, a new diagnostic script, or a corrective fix to
+code already reviewed in this phase. One block, per-file commits, verification
+scoped to the identifiers that changed plus the full suite. Spec edit where a
+spec is now wrong. No ADR unless a documented decision changed; a dated
+amendment note under the existing ADR is preferred over a new ADR for small
+corrections.
+
+**MAJOR** — new behaviour, a new module, anything touching the live processor
+path, or anything a future session could get wrong by guessing. Full treatment:
+new ADR, spec amendments, per-identifier verification, stop-before-commit,
+explicit go before commit.
+
+Rules that apply at every tier:
+- Verify by identifier, never by file. Per-file success reports have twice
+	concealed partial execution in this project — a block writing 3 of 7 required
+	doc entries, and a test file covering 4 of 14 required cases.
+- ADRs are immutable once accepted. Amend by appending a new ADR or a dated
+	note; never edit an accepted ADR's text. Absence-of-phrase verification
+	searches must be scoped to live spec files only, never to ARCHITECTURE.md.
+
+Environment gate:
+`C:\Users\brian\source\repos\d4_bot\.venv\Scripts\python -c "import pytest, numpy, cv2; import sys; print(sys.prefix != sys.base_prefix)"`
+must print `True`. Checking `sys.prefix != sys.base_prefix` alone is not
+enough — an empty venv passes it, which happened in this project and produced a
+test run that appeared verified but was not. `bot_framework` has no venv of its
+own by design; its tests run from d4_bot's venv. Creating a venv inside
+`bot_framework` yields an environment missing every dependency.
+
 ## The build loop (repeat until milestone)
 
 1. Open BUILD_PLAN.md → next unfinished phase. Read its FEATURE_SPECS sections yourself first (10 min — this is the review that matters most).
