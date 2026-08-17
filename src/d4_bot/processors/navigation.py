@@ -153,7 +153,7 @@ class NavigationProcessor(FrameProcessor):
             raise ValueError("navigation config stale_direction_tolerance_ticks must be between 1 and 120")
 
         self._steering_command_factory = commands.get(self._steering_command_name)
-        self._press_a_command_factory = commands.get("press_a")
+        self._press_b_command_factory = commands.get("press_b")
         steering_payload = dict(self._steering_command_factory())
         if "move_duration" not in steering_payload:
             raise ValueError(
@@ -167,11 +167,11 @@ class NavigationProcessor(FrameProcessor):
                 "navigation config burst_duration_ms must match steering command move_duration "
                 f"(burst_duration_ms={self._burst_duration_ms}, move_duration={steering_duration_ms})"
             )
-        press_a_payload = dict(self._press_a_command_factory())
-        if not any(key.startswith("button_") for key in press_a_payload):
-            raise ValueError("press_a command payload must include a button_* field")
-        if not any(key.startswith("button_") and key.endswith("_duration") for key in press_a_payload):
-            raise ValueError("press_a command payload must include a button_*_duration field")
+        press_b_payload = dict(self._press_b_command_factory())
+        if not any(key.startswith("button_") for key in press_b_payload):
+            raise ValueError("press_b command payload must include a button_* field")
+        if not any(key.startswith("button_") and key.endswith("_duration") for key in press_b_payload):
+            raise ValueError("press_b command payload must include a button_*_duration field")
 
         self._stuck_monitor = StuckMonitor(
             latency_frames=latency_frames,
@@ -635,7 +635,7 @@ class NavigationProcessor(FrameProcessor):
 
         press_now = elapsed_ticks in active.press_schedule_ticks and elapsed_ticks not in active.emitted_press_offsets
         movement_vector = self._recovery_movement_vector(active, elapsed_ticks)
-        action = self._emit_recovery_action(frame, movement_vector, emit_press_a=press_now)
+        action = self._emit_recovery_action(frame, movement_vector, emit_press_b=press_now)
         if press_now:
             active.emitted_press_offsets.add(elapsed_ticks)
         return action
@@ -659,7 +659,7 @@ class NavigationProcessor(FrameProcessor):
         frame: StampedFrame,
         movement_vector: SteeringVector | None,
         *,
-        emit_press_a: bool,
+        emit_press_b: bool,
     ) -> Action | None:
         payload: dict[str, Any] = {}
         if movement_vector is not None:
@@ -677,8 +677,8 @@ class NavigationProcessor(FrameProcessor):
             payload.update(steering_payload)
             self._last_burst_emitted_frame_id = frame.frame_id
 
-        if emit_press_a:
-            payload.update(dict(self._press_a_command_factory()))
+        if emit_press_b:
+            payload.update(dict(self._press_b_command_factory()))
 
         if not payload:
             return None
