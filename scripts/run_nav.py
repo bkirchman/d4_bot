@@ -96,6 +96,7 @@ def main() -> int:
     prev_nav_state = processor.nav_state
     last_frame_id = -1
     last_logged_skip_frame_id: int | None = None
+    last_reported_recovery_rung_frame_id: int | None = None
 
     try:
         loop.start()
@@ -132,6 +133,21 @@ def main() -> int:
             if args.verbose and processor.nav_state != prev_nav_state:
                 print(f"[f={frame.frame_id}] transition: {prev_nav_state.name} -> {processor.nav_state.name}")
                 prev_nav_state = processor.nav_state
+
+            if (
+                processor.active_recovery_rung is not None
+                and processor.last_recovery_rung_frame_id is not None
+                and processor.last_recovery_rung_frame_id != last_reported_recovery_rung_frame_id
+            ):
+                command_name = "press_b" if processor.active_recovery_rung in (1, 2) else None
+                print(
+                    f"[f={frame.frame_id}] RECOVERY "
+                    f"rung={processor.active_recovery_rung} "
+                    f"command_name={command_name} "
+                    f"stuck_events={processor.stuck_event_count} "
+                    f"budget={navigation_config['stuck_event_budget']}"
+                )
+                last_reported_recovery_rung_frame_id = processor.last_recovery_rung_frame_id
 
             if args.verbose and (runtime_ticks % 30 == 0):
                 nav_arrows_count = len(getattr(nav_arrow_detector, "last_result", []))
