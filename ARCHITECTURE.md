@@ -639,3 +639,24 @@ These describe roughly half a second of reverse movement with six interact press
 - Keeping repositioning first and adding traversal later in the ladder. Rejected: traversal is cheaper and less disruptive, and repositioning actively worsens the ladder-climb case by increasing distance.
 - A single timed interact press in rung 2. Rejected: the crossing prompt's registration window cannot be targeted from a capture 6 frames behind. Repeated presses are the operator-validated approach.
 - Screen-mode or prompt detection to identify traversal opportunities directly. Deferred: that is the screen-mode detection work ADR-020 names as the one shared-infrastructure exception, and it is not scoped.
+
+### ADR-025 — Recovery ladder traversal input is press_b
+
+**Date:** 2026-08-17
+**Status:** Accepted.
+
+**Context.** Amends the command identity in ADR-024's rungs 1 and 2. ADR-024's ladder structure, ordering, and rationale remain unchanged.
+
+ADR-024 described the ladder rungs correctly as traversal attempts, but the implementing session resolved the traversal input to `press_a` on the assumption that A is D4's interact button. Operator correction: the input that climbs ladders and triggers gap crossings in D4 is B, not A. The prior bot implementation used B for both. B is not a general interact button; it is the traversal input, and it is additionally bound to dodge.
+
+**Decision.**
+1. Rungs 1 and 2 emit `press_b`, not `press_a`.
+2. The rungs are described as a traversal press, not an interact press. The distinction is load-bearing: a general interact press would be a different button with different side effects.
+3. Config keys keep their existing names - `recovery_interact_press_count` and `recovery_interact_press_interval_ticks` - to avoid a rename touching config, loader, constructor, and tests for no behavioural gain. The `interact` prefix in those key names is historical; the command is `press_b`.
+
+**Consequences.**
+- F-NAV-3's rungs 1 and 2 name `press_b`.
+- B-4b's guardrails name `press_b`.
+- The emitted command name in NavigationProcessor changes from `press_a` to `press_b`. `press_b` is already registered in `buttons.yaml` as `type: button_duration, index: 2, duration_ms: 80` - identical to `press_a` apart from index - and was verified live in Phase 1 acceptance.
+- B doubles as dodge, so a stray traversal press during recovery is low-risk: a dodge in place, no dialogue, no looting, no dungeon entry. This is safer than `press_a` would have been.
+- Open concern, not decided here: press durations of 80 ms at a 5-tick interval (~83 ms at 60 fps) leave ~3 ms between release and next press. Under the firmware's supersede behaviour this approximates a continuous hold rather than six distinct presses. If a traversal prompt requires a rising edge, this may register as one press. To be evaluated at Phase 4b live acceptance cases C1 and C2.
