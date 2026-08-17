@@ -257,8 +257,9 @@ Guardrails for this phase:
   reading not-moving in the raw motion field. All tick counts from config.
 - StuckMonitor reads the raw motion field from GameState and never the
   debounced character_moving field.
-- The ladder is exactly four rungs (single stationary interact press,
-  reverse with interact presses overlapping the movement, offset-angle
+- The ladder is exactly four rungs (single stationary traversal press
+  (`press_b`), reverse with `press_b` presses overlapping the movement,
+  offset-angle
   re-approach via the steering helper — movement direction, never camera —
   and terminal fail). Do NOT add a re-pin rung, a random-walk rung, or an
   auto-restart — restart is the operator's job.
