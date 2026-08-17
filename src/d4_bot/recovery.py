@@ -50,7 +50,7 @@ class RecoveryLadder:
         if rung == 1:
             return RecoveryDirective(
                 rung=1,
-                command_name="press_a",
+                command_name="press_b",
                 parameters={
                     "stationary": True,
                     "press_count": 1,
@@ -64,7 +64,7 @@ class RecoveryLadder:
             )
             return RecoveryDirective(
                 rung=2,
-                command_name="press_a",
+                command_name="press_b",
                 parameters={
                     "stationary": False,
                     "reverse_duration_ticks": self._recovery_reverse_ticks,
