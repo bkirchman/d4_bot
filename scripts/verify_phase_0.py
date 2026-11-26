@@ -10,7 +10,7 @@ from typing import Any
 
 
 REQUIRED_HARDWARE_KEYS = (
-    "capture.device_index",
+    "capture.device_name",
     "capture.backend",
     "capture.width",
     "capture.height",

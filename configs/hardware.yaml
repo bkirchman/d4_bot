@@ -1,5 +1,5 @@
 ﻿capture:
-  device_index: 0
+  device_name: GC573
   backend: dshow
   width: 1920
   height: 1080

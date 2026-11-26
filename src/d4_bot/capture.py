@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from framework.contrib.config import load_layered_config
 from framework.contrib.hardware import AVerMediaCapture, UDPXboxOutput
@@ -9,7 +9,7 @@ from framework.interfaces import StampedFrame
 
 
 REQUIRED_HARDWARE_KEYS = (
-    "capture.device_index",
+    "capture.device_name",
     "capture.backend",
     "capture.width",
     "capture.height",
@@ -23,6 +23,11 @@ REQUIRED_HARDWARE_KEYS = (
 )
 
 
+class _FpsOptions(TypedDict, total=False):
+    fps_check_frames: int
+    min_fps_fraction: float
+
+
 def load_hardware_config(config_dir: str | Path) -> dict[str, Any]:
     config_path = Path(config_dir) / "hardware.yaml"
     config = load_layered_config(config_path)
@@ -34,26 +39,42 @@ def build_capture(config_dir: str | Path) -> tuple[AVerMediaCapture, StampedFram
     hardware = load_hardware_config(config_dir)
     capture_cfg = hardware["capture"]
 
+    fps_options: _FpsOptions = {}
+    if "fps_check_frames" in capture_cfg:
+        frames = capture_cfg["fps_check_frames"]
+        if not isinstance(frames, int) or isinstance(frames, bool):
+            raise ValueError("hardware config capture.fps_check_frames must be an integer")
+        fps_options["fps_check_frames"] = frames
+    if "min_fps_fraction" in capture_cfg:
+        fps_options["min_fps_fraction"] = float(capture_cfg["min_fps_fraction"])
+
     capture = AVerMediaCapture(
-        device_index=int(capture_cfg["device_index"]),
+        device_name=capture_cfg["device_name"],
         width=int(capture_cfg["width"]),
         height=int(capture_cfg["height"]),
         fps=float(capture_cfg["fps"]),
         latency_frames=int(capture_cfg["latency_frames"]),
         backend=str(capture_cfg["backend"]),
+        **fps_options,
     )
 
-    first_frame = capture.get_frame()
-    assert_capture_geometry(
-        first_frame,
-        expected_width=int(capture_cfg["width"]),
-        expected_height=int(capture_cfg["height"]),
-    )
+    try:
+        first_frame = capture.get_frame()
+        assert_capture_geometry(
+            first_frame,
+            expected_width=int(capture_cfg["width"]),
+            expected_height=int(capture_cfg["height"]),
+        )
+    except BaseException:
+        capture.close()
+        raise
 
     print(
         "capture startup: "
         f"resolution={first_frame.frame.shape[1]}x{first_frame.frame.shape[0]} "
-        f"fps={capture.fps:.1f} latency_frames={capture.latency_frames}"
+        f"fps={capture.fps:.1f} latency_frames={capture.latency_frames} "
+        f'device="{capture.device_name_resolved}" path={capture.device_path} '
+        f"backend={capture.active_backend} achieved_fps={capture.achieved_fps:.1f}"
     )
 
     return capture, first_frame
@@ -82,8 +103,13 @@ def assert_capture_geometry(frame: StampedFrame, expected_width: int, expected_h
 
 
 def _validate_required_hardware_keys(config: dict[str, Any]) -> None:
+    capture = config.get("capture")
+    if isinstance(capture, dict) and "device_index" in capture and "device_name" in capture:
+        raise ValueError("hardware config contains capture.device_index; delete it and use capture.device_name")
     for dotted_key in REQUIRED_HARDWARE_KEYS:
         _require_nested_key(config, dotted_key)
+    if not isinstance(capture["device_name"], str) or not capture["device_name"].strip():
+        raise ValueError("hardware config capture.device_name must be a non-empty string")
 
 
 def _require_nested_key(config: dict[str, Any], dotted_key: str) -> None:
