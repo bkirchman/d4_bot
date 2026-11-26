@@ -7,13 +7,14 @@ import yaml
 
 from framework.contrib.config import load_layered_config
 from framework.contrib.content_loops import DetectorRegistry
-from framework.contrib.detection import ColorMatchDetector, RoiMotionDetector, TemplateMatchDetector
+from framework.contrib.detection import ColorMatchDetector, FillLevelDetector, RoiMotionDetector, TemplateMatchDetector
 from framework.contrib.ml import YoloDetector
 
 from .minimap_pin import MinimapPinDetector
+from .fill_level import CadencedFillLevelDetector
 
 
-SUPPORTED_DETECTOR_TYPES = ("yolo", "roi_motion", "color_match", "template_match")
+SUPPORTED_DETECTOR_TYPES = ("yolo", "roi_motion", "color_match", "template_match", "fill_level")
 
 
 def build_detectors(
@@ -69,6 +70,25 @@ def build_detectors(
             )
             continue
 
+        if detector_type == "fill_level":
+            if roi is None:
+                raise ValueError(f"detector config '{cfg_path}' missing required key 'roi'")
+            hue_values = _require_key(cfg, "hue_range", cfg_path)
+            if not isinstance(hue_values, list) or len(hue_values) != 2:
+                raise ValueError(f"detector config '{cfg_path}' hue_range must contain two values")
+            fill_detector = FillLevelDetector(
+                roi=roi,
+                hue_range=(int(hue_values[0]), int(hue_values[1])),
+                saturation_min=int(_require_key(cfg, "saturation_min", cfg_path)),
+                value_min=int(_require_key(cfg, "value_min", cfg_path)),
+                row_fraction=float(_require_key(cfg, "row_fraction", cfg_path)),
+                min_consecutive_rows=int(_require_key(cfg, "min_consecutive_rows", cfg_path)),
+                full_row=int(_require_key(cfg, "full_row", cfg_path)),
+                empty_row=int(_require_key(cfg, "empty_row", cfg_path)),
+            )
+            detectors[detector_name] = CadencedFillLevelDetector(fill_detector, cadence)
+            continue
+
         if detector_type == "color_match":
             hue_range = tuple(int(v) for v in _require_key(cfg, "hue_range", cfg_path))
             detectors[detector_name] = ColorMatchDetector(
@@ -115,6 +135,8 @@ def build_detector_registry(
             registry.register(name, detector.update)
         elif isinstance(detector, MinimapPinDetector):
             registry.register(name, lambda frame, detector=detector: detector.update(frame).pin_visible)
+        elif isinstance(detector, CadencedFillLevelDetector):
+            registry.register(name, lambda frame, detector=detector: detector.detector(frame).liquid_found)
         elif hasattr(detector, "update") and callable(getattr(detector, "update")):
             registry.register(name, getattr(detector, "update"))
         else:

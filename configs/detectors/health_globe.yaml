@@ -1,0 +1,12 @@
+type: fill_level
+roi: health_globe
+cadence: 2
+hue_range: [160, 25]
+saturation_min: 150
+value_min: 45
+row_fraction: 0.5
+min_consecutive_rows: 3
+# ROI-relative rows (frame y 828 / 950), measured from census frames.
+# empty_row is an estimate pending a near-empty frame.
+full_row: 14
+empty_row: 136

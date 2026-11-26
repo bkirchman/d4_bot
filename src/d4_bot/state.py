@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from d4_bot.detectors.minimap_pin import MinimapPinResult
+from framework.contrib.detection import FillLevelResult
 from framework.contrib.ml import Detection
 from framework.interfaces import StampedFrame
 
@@ -21,6 +22,10 @@ class GameState:
     pin_position: tuple[int, int] | None = None
     enemy_present: bool = False
     screen_mode: str = "hud"
+    # Low-health policy and occlusion handling await screen-mode detection.
+    health_fill_fraction: float | None = None
+    health_liquid_found: bool = False
+    health_fill_frame_id: int | None = None
 
     def staleness(self, field_frame_id: int) -> int:
         return self.frame_id - field_frame_id
@@ -96,6 +101,16 @@ class GameStateUpdater:
             pin_visible = False
             pin_position = None
 
+        health_result = detector_results.get("health_globe")
+        health_fill_fraction: float | None = None
+        health_liquid_found = False
+        health_fill_frame_id: int | None = None
+        if isinstance(health_result, FillLevelResult):
+            health_fill_fraction = health_result.fill_fraction
+            health_liquid_found = health_result.liquid_found
+            health_detector = self._detectors["health_globe"]
+            health_fill_frame_id = getattr(health_detector, "last_inference_frame_id", frame.frame_id)
+
         return GameState(
             frame_id=frame.frame_id,
             timestamp=frame.timestamp,
@@ -106,4 +121,7 @@ class GameStateUpdater:
             nav_arrows_frame_id=nav_arrows_frame_id,
             pin_visible=pin_visible,
             pin_position=pin_position,
+            health_fill_fraction=health_fill_fraction,
+            health_liquid_found=health_liquid_found,
+            health_fill_frame_id=health_fill_frame_id,
         )
