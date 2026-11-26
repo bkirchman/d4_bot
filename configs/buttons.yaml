@@ -2,11 +2,17 @@ press_a:
   type: button_duration
   index: 1
   duration_ms: 80
-
+  
 press_b:
   type: button_duration
   index: 2
   duration_ms: 80
+
+press_left_trigger:
+  type: trigger_duration
+  trigger_lt: 100
+  duration_ms: 80
+
 move_nav_burst:
   type: move_duration
   move_x: 0

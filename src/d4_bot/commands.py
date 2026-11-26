@@ -72,11 +72,27 @@ def build_command_registry(buttons_config: dict[str, dict[str, Any]]) -> Command
             continue
 
         if command_type == "trigger_duration":
-            _validate_required_key(command_name, command, "trigger")
-            payload = {
-                "trigger": int(command["trigger"]),
-                "trigger_duration": int(command["duration_ms"]),
-            }
+            has_rt = "trigger" in command
+            has_lt = "trigger_lt" in command
+            if has_rt and has_lt:
+                raise ValueError(
+                    f"buttons config command '{command_name}' must define only one of 'trigger' or 'trigger_lt'"
+                )
+            if not has_rt and not has_lt:
+                raise ValueError(
+                    f"buttons config command '{command_name}' missing required key 'trigger' or 'trigger_lt'"
+                )
+
+            if has_rt:
+                payload = {
+                    "trigger": int(command["trigger"]),
+                    "trigger_duration": int(command["duration_ms"]),
+                }
+            else:
+                payload = {
+                    "trigger_lt": int(command["trigger_lt"]),
+                    "trigger_lt_duration": int(command["duration_ms"]),
+                }
             registry.register(command_name, _payload_factory(payload))
             continue
 
