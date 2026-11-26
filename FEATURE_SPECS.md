@@ -364,23 +364,26 @@ M1 scope is defensive combat only (not area-clear): detect target acquisition fr
 ### F-DET-5 — Health globe fill detector
 
 - **Purpose:** Estimate player survivability by reading the health globe fill level and exposing `health_fill_fraction` for potion policy.
-- **Layer:** d4_bot detector wiring (`src/d4_bot/detectors/`) over framework color/ROI mechanisms.
+- **Layer:** d4_bot detector wiring (`src/d4_bot/detectors/`) over framework `FillLevelDetector`.
 - **Origin:** New for unattended-farming survivability in M1.
-- **Surface (spec):** `HealthGlobeFillDetector(config: dict)` implementing the framework detector interface.
-- **Method:** ROI crop of the health globe plus color-mask sampling to estimate filled pixels as a fraction in `[0.0, 1.0]`; boolean low-health verdict is computed from configured threshold.
-- **Runtime config (combat detector YAML):**
-  - `health_globe_roi: [x, y, w, h]` — ROI name resolved through `rois.yaml`.
-  - `health_globe_color_lower` / `health_globe_color_upper` — HSV/BGR bounds used by the mask pipeline.
-  - `health_globe_fill_threshold: float` — potion trigger threshold (for example, drink when fill <= threshold).
-  - `health_globe_hysteresis_ticks: int` — debounce around the threshold crossing.
-  - `health_globe_cadence: int` — detector cadence.
+- **Surface (spec):** framework `FillLevelDetector`, wrapped by `CadencedFillLevelDetector` for stamped frames and origin tracking.
+- **Method:** In the center-strip ROI, classify liquid pixels by HSV and find the first row that starts a run of `min_consecutive_rows` rows where more than `row_fraction` of the pixels match. Convert the ROI-relative top row to `clamp((empty_row - top_row) / (empty_row - full_row), 0.0, 1.0)`. No qualifying liquid run yields `liquid_found: False` and a `None` fraction, never `0.0`.
+- **Runtime config:** `configs/detectors/health_globe.yaml` selects `type: fill_level`, `roi: health_globe` and `cadence: 2`; `configs/rois.yaml` defines the measured 1920×1080 ROI `[143, 814, 15, 138]`. The measured color and row parameters are `hue_range: [160, 25]` (red wrap), `saturation_min: 150`, `value_min: 45`, `row_fraction: 0.5`, and `min_consecutive_rows: 3`. Calibration rows `full_row: 14` and `empty_row: 136` are ROI-relative (frame y 828 and 950); `empty_row` is an estimate pending a near-empty frame.
+- **Measured census readings:** healthy globes read 0.98–1.0; the low-health sequence read 0.91, 0.86, 0.63, 0.41, 0.35. HUD-hidden death-transition, death-screen and map frames returned `liquid_found: False`.
 - **Outputs:**
-  - `health_fill_fraction: float` — normalized fill estimate.
-  - `health_low: bool` — debounced threshold verdict consumed by combat policy.
-  - `health_globe_frame_id: int` — origin frame for latency-aware decision gating.
+  - `health_fill_fraction: float | None` — normalized fill estimate, or `None` when no liquid is found.
+  - `health_low: bool` — deferred: needs screen mode before a safe threshold verdict can be produced.
+  - `health_fill_frame_id: int | None` — origin frame for latency-aware decision gating.
+  - `health_liquid_found: bool` (`liquid_found` on the detector result) — whether a qualifying liquid run was found.
+- **Known limits:**
+  - `liquid_found: False` is ambiguous between a drained globe and a hidden HUD. Resolve later with screen mode: skill bar present and no liquid means approximately 0.0; otherwise the reading is occluded. An occluded reading must never trigger a potion.
+  - The potion threshold (approximately 0.60) is config data and unvalidated. Torment X drains approximately 90% to 30% in approximately 2 seconds, then death follows within 0.25 seconds.
+  - Detector cadence must be at most 4 frames. Consumers must treat the reading as at least 6 frames old (3 capture + 3 action) and use `health_fill_frame_id` for staleness.
+  - Census samples are 0.25 seconds apart; drain timing between samples is not validated.
+  - The legacy meniscus-highlight method (HSV V>=108, S<=149, first hit row, motion gated) is rejected: it read 1 on healthy globes.
 - **Do-NOT guardrails:** no potion emission in detector code, no hardcoded thresholds in Python, no full-screen processing.
 - **Complexity:** L–M.
-- **Acceptance (live):** during controlled damage intake and healing, `health_fill_fraction` tracks visible globe depletion/refill and `health_low` toggles only after configured hysteresis, with no chatter around boundary values.
+- **Acceptance (live):** during controlled damage intake and healing, `health_fill_fraction` tracks visible globe depletion/refill; a missing liquid run remains unknown. `health_low` acceptance is deferred until screen-mode detection and policy are implemented.
 
 ### F-DET-6 — Revive-screen detector
 
