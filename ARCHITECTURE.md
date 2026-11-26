@@ -660,3 +660,43 @@ ADR-024 described the ladder rungs correctly as traversal attempts, but the impl
 - The emitted command name in NavigationProcessor changes from `press_a` to `press_b`. `press_b` is already registered in `buttons.yaml` as `type: button_duration, index: 2, duration_ms: 80` - identical to `press_a` apart from index - and was verified live in Phase 1 acceptance.
 - B doubles as dodge, so a stray traversal press during recovery is low-risk: a dodge in place, no dialogue, no looting, no dungeon entry. This is safer than `press_a` would have been.
 - Open concern, not decided here: press durations of 80 ms at a 5-tick interval (~83 ms at 60 fps) leave ~3 ms between release and next press. Under the firmware's supersede behaviour this approximates a continuous hold rather than six distinct presses. If a traversal prompt requires a rising edge, this may register as one press. To be evaluated at Phase 4b live acceptance cases C1 and C2.
+
+### ADR-026 — Capture device is selected by name; startup verifies achieved frame rate
+
+**Date:** 2026-11-25
+**Status:** Accepted.
+
+**Context.** During the 2026-11-25 HUD census, `hardware.yaml` held `device_index: 0` and the GC573 was at index 0 for the first recording. Minutes later, with no config change, index 0 opened the HD Pro Webcam C920 instead. The run recorded a picture of the workshop. Nothing in the pipeline objected: the webcam also delivers 1920×1080, so the geometry assertion passed. The only symptom was an achieved rate of ~27 fps against a configured 60, which nothing checks.
+
+Enumeration later the same afternoon (`cv2_enumerate_cameras`, DirectShow) listed four video devices: `HD Pro Webcam C920`, `Cam Link 4K`, `AVerMedia HD Capture GC573 1`, `OBS Virtual Camera`. Within one session the GC573 moved from index 0 to index 2, and the webcam took index 0. This is the second documented index drift (the first was 2 → 0, see overview / TROUBLESHOOTING). DirectShow index order is not stable across opens, USB activity, or reboots, so an integer index cannot identify the capture card.
+
+Two further facts make a content-based check insufficient on its own:
+- The rig has a second capture device (Cam Link 4K). If it is ever routed the Xbox picture (the HDMI matrix makes that one switch away), a "does this look like the game" test cannot tell the two cards apart, and the 6-frame latency rule was measured on the GC573 only.
+- ADR-022 already establishes that a legitimately black or non-HUD startup screen (loading, death, map) is indistinguishable from a fault by content alone.
+
+ADR-022 also banked that nothing verifies the loop actually runs at the configured fps. Both the webcam incident (~27 fps) and the earlier OBS sharing incident (30 fps) would have been caught by measuring it.
+
+**Decision.**
+1. `AVerMediaCapture` accepts `device_name: str` as the primary selector. At open, it enumerates video devices for the backend being opened, matches `device_name` as a case-insensitive substring, and opens the matched device's index.
+   - Exactly one match is required. Zero or multiple matches raise, and the error lists every enumerated device (index, name, path).
+   - There is no fallback to any index. A missing match is a hard failure, because a silent fallback is the failure this ADR exists to prevent.
+   - If the existing MSMF → DSHOW backend fallback occurs, the name is re-resolved against the fallback backend's enumeration.
+   - `device_index` remains accepted for backward compatibility (gen3_bot, diagnostic scripts). Supplying both or neither raises.
+2. The resolved device (name, path, index, backend) is exposed as properties on the capture object and printed in the startup banner on every run.
+3. After ADR-022 warm-up completes, `AVerMediaCapture` measures the achieved frame rate over a short window (`fps_check_frames`, framework default 60). If achieved fps is below `min_fps_fraction × fps` (framework default 0.9), it raises. Unlike ADR-022's warm-up timeout, this is a hard failure: no game screen lowers the delivered frame rate, and a wrong rate silently invalidates every latency and cadence value in the system. Both values are framework defaults overridable in `hardware.yaml`, not required keys.
+4. d4_bot adds an advisory content check in `build_capture`: after the first live frame, template-match the minimap at its configured ROI and print a loud WARNING on a miss. It does not raise (ADR-022 reasoning: map, death and loading screens are legitimate startup states).
+5. Device enumeration uses `cv2_enumerate_cameras` (Windows), installed through bot_framework's `hardware` extra with a `sys_platform == "win32"` marker. Core stays stdlib + numpy.
+
+**Consequences.**
+- `hardware.yaml` gains `capture.device_name` (d4_bot value: `GC573`) and loses `capture.device_index` from its required keys.
+- The startup banner becomes the first place to look when anything visual is wrong: it states which physical device is open and the measured fps.
+- The QUESTIONS item "nothing verifies the loop runs at configured fps" (banked by ADR-022) is closed for capture delivery. Loop processing rate is still measured separately by BotLoop's achieved-FPS measurement.
+- A second GC573 on the rig would make `GC573` ambiguous and fail loudly. If that ever happens, extend matching to the device path. Not built now.
+- `pip.exe` is blocked by Windows Application Control on this machine. All installs use `python -m pip` (TROUBLESHOOTING entry).
+- Applies unchanged to gen3_bot and the Halo migration; the rig is shared.
+
+**Alternatives considered.**
+- **Keep `device_index`, add a content check.** Rejected: cannot distinguish the GC573 from the Cam Link carrying the same picture, and ambiguous on legitimate non-HUD startup screens (ADR-022).
+- **pygrabber for enumeration.** Pure Python, but returns names only and relies on its list order matching OpenCV's indices. `cv2_enumerate_cameras` returns the OpenCV index directly with name and path. Kept as the fallback if Application Control ever blocks the compiled package.
+- **Match on device path instead of name.** Most stable identifier, but unreadable in config and unnecessary with one GC573. Logged, not required.
+- **Fall back to index on name miss.** Rejected: reintroduces the silent wrong-device failure.

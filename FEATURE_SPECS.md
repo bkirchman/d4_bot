@@ -17,7 +17,7 @@ All `d4_bot` code imports from exactly this surface. Anything else is a violatio
 | `from framework.interfaces import CaptureSource, OutputDevice, FrameProcessor, StampedFrame, Action` | Core ABCs and data types. `StampedFrame(frame_id: int, timestamp: float, frame: np.ndarray, metadata: dict)`. `Action(frame_id: int, timestamp: float, payload: Any)`. `FrameProcessor.process(frame: StampedFrame, services: ProcessorServices) -> Action | None` — `services` bundles the per-tick collaborators the processor needs (frame history, <fill from framework/interfaces.py: e.g. command registry access, capture metadata, whatever else the dataclass carries>). Read the dataclass in framework/interfaces.py for the exact field list; that source is the spec of record for this signature. |
 | `from framework.loop import BotLoop` | `BotLoop(capture, output, processor, history)`; methods `start()`, `step()`, `stop()`. Synchronous: capture → record → process → execute → re-record. |
 | `from framework.temporal import FrameHistory, TemporalAligner` | `FrameHistory(capacity: int)`; rolling `(StampedFrame, Action | None)` pairs, queryable by `frame_id` and timestamp. |
-| `from framework.contrib.hardware import AVerMediaCapture, UDPXboxOutput, ReplayCapture` | Capture sources and controller output. `AVerMediaCapture(device_index, width, height, fps, latency_frames, backend)`. `UDPXboxOutput(udp_ip, udp_port, response_port, response_mode, debug_mode)`. |
+| `from framework.contrib.hardware import AVerMediaCapture, CaptureDeviceInfo, list_capture_devices, UDPXboxOutput, ReplayCapture` | Capture sources, device enumeration and controller output. `AVerMediaCapture(device_index=None, *, device_name=None, ..., fps_check_frames=60, min_fps_fraction=0.9)`; exactly one selector is required. `UDPXboxOutput(udp_ip, udp_port, response_port, response_mode, debug_mode)`. |
 | `from framework.contrib.detection import ColorMatchDetector, TemplateMatchDetector` | Existing detectors. |
 | `from framework.contrib.content_loops import ContentLoopProcessor, CommandRegistry, DetectorRegistry, load_loops_from_file` | YAML loop machinery. |
 | `from framework.contrib.ml import YoloDetector, Detection` | **New — FG-1.** |
@@ -93,6 +93,25 @@ These are mechanisms, not game knowledge. Litmus test passed for each: "works un
 - **Complexity:** L.
 - **Acceptance (offline unit test):** A pytest covering scalar override, nested-dict merge, list replacement, and the no-overrides path.
 
+### FG-6 — Capture device selection by name + achieved-fps check (`bot_framework`)
+
+- **Purpose:** ADR-026. Identify the capture device by name, never by unstable index; refuse to run at a degraded delivered frame rate.
+- **Layer:** `framework/contrib/hardware/avermedia.py`, plus a public helper `list_capture_devices(backend: str) -> list[CaptureDeviceInfo]` in `framework/contrib/hardware/`.
+- **Surface (spec):**
+  - `CaptureDeviceInfo` frozen dataclass: `index: int`, `name: str`, `path: str | None`, `backend: str`.
+  - `AVerMediaCapture(device_index: int | None = None, *, device_name: str | None = None, ..., fps_check_frames: int = 60, min_fps_fraction: float = 0.9)`. Exactly one of `device_index` / `device_name`.
+  - Properties: `device_name_resolved: str`, `device_path: str | None`, `device_index_resolved: int`, `achieved_fps: float`.
+- **Behavior:**
+  - Name match: case-insensitive substring against enumerated names for the backend being opened. 0 or >1 matches → `RuntimeError` listing all devices. Re-resolve on MSMF → DSHOW fallback.
+  - Use the index exactly as `cv2_enumerate_cameras` reports it. Read the library source before writing the open call: it may encode the backend into the index (e.g. 700 + n for DSHOW). Pass it to `cv2.VideoCapture` the way the library documents.
+  - fps check runs once, after ADR-022 warm-up, inside the constructor. Measured as `(fps_check_frames - 1) / elapsed` across consecutive blocking reads. Below `min_fps_fraction × fps` → `RuntimeError` stating configured vs achieved fps and the resolved device name.
+  - The frames consumed by the fps check are discarded; `frame_id` numbering still starts at 0 for the caller.
+- **Dependency:** `cv2_enumerate_cameras` added to the `hardware` extra with marker `sys_platform == "win32"`. Import lazily, only when `device_name` is used; on import failure raise naming the package and the `python -m pip` install command.
+- **Do-NOT guardrails:** no index fallback on name miss; no game knowledge (no ROI, template, or game name); no threads; no change to warm-up semantics or `latency_frames`.
+- **Complexity:** M.
+- **Acceptance (offline, pytest with fake cv2 + fake enumerator):** single match opens the right index; zero and two matches raise listing devices; both/neither selector raises; MSMF→DSHOW fallback re-resolves; fps check passes at 60, raises at 27; frame_id starts at 0 after the check.
+- **Acceptance (live):** with webcam, Cam Link, GC573 and OBS Virtual Camera all present, `device_name="GC573"` opens the GC573 on repeated runs regardless of enumeration order; banner shows its name and path; `device_name="C920"` raises at the fps check (webcam delivers ~30).
+
 ---
 
 ## 2. Configuration Layer (`d4_bot/configs/`)
@@ -106,7 +125,9 @@ Schemas are specified as key tables. All files are YAML. All keys snake_case. Th
 
 | Key | Type | Value on this rig | Notes |
 |---|---|---|---|
-| `capture.device_index` | int | 1 | |
+| `capture.device_name` | str | `GC573` | **Required.** Substring of the DirectShow device name. Replaces `capture.device_index` (ADR-026) |
+| `capture.fps_check_frames` | int | (framework default 60) | Optional |
+| `capture.min_fps_fraction` | float | (framework default 0.9) | Optional |
 | `capture.backend` | str | `dshow` | |
 | `capture.width` / `capture.height` | int | 1920 / 1080 | Asserted at startup (ADR/§9.1 of ARCHITECTURE) |
 | `capture.fps` | float | 60.0 | |
@@ -114,6 +135,8 @@ Schemas are specified as key tables. All files are YAML. All keys snake_case. Th
 | `controller.udp_ip` / `controller.udp_port` | str / int | 192.168.1.196 / 5005 | |
 | `controller.response_port` / `controller.response_mode` | int | 5006 / 0 | |
 | `active_season` | str | e.g. `s09` | Selects `configs/seasons/<active_season>/overrides.yaml`; CLI flag may override |
+
+`capture.device_index` is removed from `REQUIRED_HARDWARE_KEYS`. If present alongside `device_name`, startup fails with a one-line error telling the operator to delete it.
 
 - **Complexity:** L. **Acceptance:** startup with a wrong resolution or a missing key exits with a clear one-line error naming the key.
 
@@ -160,6 +183,10 @@ Schemas are specified as key tables. All files are YAML. All keys snake_case. Th
 - **Origin:** Carried from diablo_bot's `run_farm_v1.py` pattern, minus CLI-flag sprawl.
 - **Consumes:** `AVerMediaCapture` (signature in §0).
 - **Behavior:** first frame's ndarray shape is checked against configured width/height; mismatch = exit with error. Prints `latency_frames` at startup (as run_farm_v1.py does).
+- `build_capture` passes `device_name` (not `device_index`).
+- Banner adds: `device="<resolved name>" path=<path> backend=<active backend> achieved_fps=<x.x>`.
+- New advisory check after the first frame: template-match the minimap at ROI `minimap` from `rois.yaml` using a template under `configs/`; threshold from config (`capture_content_check_threshold`, starting value 0.6). On miss: print `WARNING: capture content check failed — minimap not found. Device "<name>" may not be showing the game (or the game is on a non-HUD screen).` Never raises.
+- **Do-NOT guardrails:** no coordinates or threshold literals in Python; no raise on content miss.
 - **Complexity:** L. **Acceptance (live):** startup banner shows resolution, fps, and `latency_frames=6` sourced from the object.
 
 ---
@@ -482,8 +509,11 @@ M1 scope is defensive combat only (not area-clear): detect target acquisition fr
 | F-DIAG-3 | `diag_udp_echo.py --command <name>` | Loads buttons.yaml + command registry, fires one named command through `UDPXboxOutput`, prints the payload sent. The button-mapping truth test. | Each nav-milestone command produces the correct visible in-game act. **Complexity L.** |
 | F-DIAG-4 | `capture_icons.py --roi <name> --out <season_dir>` | Grabs cropped template images from live capture on keypress into a season icons folder — the seasonal refresh capture tool (F-CFG-5). | A captured crop is immediately usable by TemplateMatchDetector. **Complexity L.** |
 | F-DIAG-5 | `diag_combat_tuner.py` | Combat-focused live tuner for F-DET-4/F-DET-5/F-DET-6 inputs. Displays configured combat ROIs and per-frame detector telemetry: enemy health-bar presence + score, health-globe fill fraction + low-health verdict, revive-screen presence + score. Provides hotkey-adjustable thresholds/hysteresis for live experimentation and prints copy-ready YAML fragments; never writes config files directly. | In a live combat scene, operator can tune bar/globe/revive thresholds until outputs are stable (no idle flicker, responsive under combat effects), then paste emitted YAML into detector configs and reproduce the same behavior on a replay clip. **Complexity M.** |
+| F-DIAG-6 | `diag_list_capture_devices.py` | Prints `list_capture_devices("dshow")` (index, name, path) and, if `hardware.yaml` is present, marks which device `capture.device_name` resolves to, or states 0 / multiple matches. | Output matches Device Manager; marked device is the GC573. **Complexity L.** |
 
 Shared guardrail for all diagnostics: read-only with respect to configs; no controller output except F-DIAG-3's single explicit command; safe to run while the game sits idle.
+
+`scripts/probe_capture_indexes.py` and `scripts/live_capture_preview.py` gain `--device-name` (mutually exclusive with the existing index arguments).
 
 ---
 

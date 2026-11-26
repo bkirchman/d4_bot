@@ -28,16 +28,17 @@
 7. In-place YOLOv5→YOLOv8 conversion attempted once and failed
    (head architecture divergence). Retraining is the only clean path.
    Applies to Halo H0 too — gen3's models are v5-era.
-- **Loop frame rate is assumed, never measured.** NavigationProcessor computes
+- **Capture delivery rate was assumed, never verified (closed by ADR-026).** NavigationProcessor computes
    emission timing as frame_id delta multiplied by the configured fps from
-   hardware.yaml. Nothing verifies the loop is actually achieving that rate. On
+   hardware.yaml. At the time, nothing verified the loop was actually achieving that rate. On
    2026-08-06 a session ran at a real 30 fps against a configured 60 — every
    emission interval, latency gate and arrival threshold was applied at double
    its intended wall-clock duration, and the resulting stop/start motion was
    initially misattributed to the firmware failing to supersede in-flight move
-   commands. Proposed fix: measure the achieved rate over a rolling window at
+   commands. Original proposed fix: measure the achieved rate over a rolling window at
    runtime and warn loudly on sustained divergence from the configured value.
-   Related to RB-6 and ADR-022.
+   Related to RB-6 and ADR-022. ADR-026 closes this for capture delivery with a
+   startup achieved-fps check; BotLoop measures loop processing rate separately.
 - **ADR-014 cites protocol.md §3.2 for behaviour that section does not
    describe.** ADR-014 states that a new `move_duration` packet supersedes a
    running firmware timer "per protocol.md §3.2 special behavior". §3.2's only

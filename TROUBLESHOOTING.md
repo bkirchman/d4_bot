@@ -194,6 +194,11 @@ Run COPILOT_PROMPTS.md **C-4**'s checklist. Summary of the order that finds it f
 **Recognition:** distinct from a genuine `cv2` install failure — imports succeed, only GUI functions break.
 **Fix:** `pip uninstall opencv-python-headless`, then reinstall `opencv-python` (GUI build) in the venv. Durable fix is pinning `opencv-python` explicitly in `bot_framework [ml]` (tracked as QUESTIONS.md environment-hygiene item 2).
 
+### RB-12 — pip.exe blocked by Application Control → use python -m pip
+
+**Symptom:** running `pip.exe` is blocked by Windows Application Control.
+**Fix:** use the intended Python interpreter to install packages, for example `python -m pip install <package>`.
+
 ---
 
 ## Part 3 — "When in Doubt" Defaults
